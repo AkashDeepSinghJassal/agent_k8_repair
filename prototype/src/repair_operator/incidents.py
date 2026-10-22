@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from . import metrics
 from .config import get_settings
 from .models import Phase
 
@@ -91,8 +92,19 @@ def open_incident(
         raise
 
 
-def set_phase(patch: Any, phase: Phase | str, now: datetime | None = None, **fields: Any) -> None:
-    """Write status.phase, status.timestamps.<key> (ISO-8601 UTC) and extra status fields."""
+def set_phase(
+    patch: Any,
+    phase: Phase | str,
+    now: datetime | None = None,
+    incident: dict | str | None = None,
+    namespace: str | None = None,
+    **fields: Any,
+) -> None:
+    """Write status.phase, status.timestamps.<key> (ISO-8601 UTC) and extra status fields.
+
+    ``incident`` is the RepairIncident body (dict) or its name; when known, the phase change
+    is also emitted to the event log (``metrics.emit``). Callers that omit it emit nothing.
+    """
     phase = Phase(phase)
     status = patch.setdefault("status", {})
     status["phase"] = phase.value
@@ -101,3 +113,24 @@ def set_phase(patch: Any, phase: Phase | str, now: datetime | None = None, **fie
         stamp = utc_iso(now)
         status.setdefault("timestamps", {}).update({k: stamp for k in keys})
     status.update(fields)
+
+    if incident is not None:
+        if isinstance(incident, dict):
+            meta = incident.get("metadata") or {}
+            name, ns = meta.get("name"), namespace or meta.get("namespace")
+        else:
+            name, ns = incident, namespace
+        if name:
+            classification = status.get("classification") or {}
+            metrics.emit(
+                name,
+                ns,
+                phase.value,
+                **{
+                    "class": classification.get("class"),
+                    "tier": (status.get("proposal") or {}).get("tier"),
+                    "source": classification.get("source"),
+                    "attempt": status.get("attempts"),
+                    "fault": fields.get("fault") or status.get("fault"),
+                },
+            )
