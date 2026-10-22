@@ -8,10 +8,10 @@ lint:
 	uv run ruff check src tests
 
 cluster-up:
-	@echo "see #3"
+	bash cluster/bootstrap.sh
 
 cluster-down:
-	@echo "see #3"
+	bash cluster/teardown.sh
 
 operator:
 	@echo "see #4"

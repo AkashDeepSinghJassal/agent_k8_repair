@@ -1,0 +1,42 @@
+# Argo CD Applications (CONTRACTS §3). Argo CD syncs the GitOps target repo repair-demo-app.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AkashDeepSinghJassal/repair-demo-app.git
+    targetRevision: main
+    path: deploy/demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-app-b
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AkashDeepSinghJassal/repair-demo-app.git
+    targetRevision: main
+    path: deploy/demo-b
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-b
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

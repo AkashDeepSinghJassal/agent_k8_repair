@@ -1,0 +1,40 @@
+# Argo CD (chart argo/argo-cd 10.10.5, app v3.5.5). Minimal install for a laptop.
+# Argo CD UI: kubectl -n argocd port-forward svc/argocd-server 8443:443
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+# The chart renders the ApplicationSet controller unconditionally (no enabled flag
+# in 10.10.5); replicas 0 keeps it off the cluster.
+applicationSet:
+  replicas: 0
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+server:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
