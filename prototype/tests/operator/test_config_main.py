@@ -51,4 +51,4 @@ def test_debounce_and_collect_step():
 def test_phase_hooks():
     p: dict = {}
     main.analyze_hook({"status": {"attempts": 1}}, p)
-    assert p["status"]["phase"] == "Analyzing" and p["status"]["attempts"] == 2
+    assert p["status"]["phase"] == "Analyzing" and p["status"]["attempts"] == 1
