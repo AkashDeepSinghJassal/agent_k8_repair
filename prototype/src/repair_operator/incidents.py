@@ -9,7 +9,7 @@ from typing import Any
 
 from . import metrics
 from .config import get_settings
-from .models import Phase
+from .models import TERMINAL_PHASES, Phase
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,48 @@ def clear_cooldowns() -> None:
     _cooldowns.clear()
 
 
+def _find_open_sibling(api: Any, namespace: str, source: dict, name: str) -> dict | None:
+    """Non-terminal incident for the same owner workload + container (a different signal for one failure)."""
+    owner, container = source.get("owner"), source.get("container")
+    if source.get("kind") != "Pod" or not owner or not container:
+        return None
+    try:
+        items = api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL).get("items") or []
+    except Exception:  # noqa: BLE001
+        return None
+    terminal = {p.value for p in TERMINAL_PHASES}
+    for it in items if isinstance(items, list) else []:
+        src = (it.get("spec") or {}).get("source") or {}
+        phase = (it.get("status") or {}).get("phase")
+        if (
+            it.get("metadata", {}).get("name") != name
+            and src.get("kind") == "Pod"
+            and src.get("owner") == owner
+            and src.get("container") == container
+            and phase not in terminal
+        ):
+            return it
+    return None
+
+
+def _merge_signal(api: Any, namespace: str, existing: dict, source: dict) -> dict:
+    """Record ``source`` as an extra signal on ``existing``; OOMKilled wins as the class hint."""
+    name = existing["metadata"]["name"]
+    signal = {k: source.get(k) for k in ("name", "reason", "classHint") if source.get(k)}
+    signals = [*((existing.get("status") or {}).get("signals") or [])]
+    if signal and signal not in signals:
+        signals.append(signal)
+        api.patch_namespaced_custom_object_status(GROUP, VERSION, namespace, PLURAL, name, {"status": {"signals": signals}})
+    old = (existing.get("spec") or {}).get("source") or {}
+    if source.get("classHint") == "OOM_KILLED" and old.get("classHint") != "OOM_KILLED":
+        api.patch_namespaced_custom_object(
+            GROUP, VERSION, namespace, PLURAL, name,
+            {"spec": {"source": {"classHint": "OOM_KILLED", "reason": source.get("reason")}}},
+        )
+    log.info("signal %s merged into open incident %s", source.get("reason"), name)
+    return existing
+
+
 def open_incident(
     api: Any, namespace: str, source: dict, fp: str, signature: str | None = None
 ) -> dict | None:
@@ -75,6 +117,9 @@ def open_incident(
         log.info("fingerprint %s in cooldown, not opening an incident", fp[:10])
         return None
     name = incident_name(fp)
+    sibling = _find_open_sibling(api, namespace, source, name)
+    if sibling is not None:
+        return _merge_signal(api, namespace, sibling, source)
     body: dict[str, Any] = {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "RepairIncident",
