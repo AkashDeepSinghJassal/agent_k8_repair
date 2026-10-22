@@ -27,6 +27,27 @@ class InvalidOutput(Exception):
     reason = "invalid_output"
 
 
+class LlmUnavailable(Exception):
+    """Auth/permission/billing failure: retrying cannot help, escalate immediately."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _unavailable(exc: Exception) -> LlmUnavailable | None:
+    try:
+        import anthropic
+    except ImportError:  # pragma: no cover
+        return None
+    msg = str(getattr(exc, "message", None) or exc)
+    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return LlmUnavailable(msg[:200])
+    if isinstance(exc, anthropic.BadRequestError) and re.search(r"credit|billing", msg, re.IGNORECASE):
+        return LlmUnavailable(msg[:200])
+    return None
+
+
 class Param(BaseModel):
     key: str
     value: str
@@ -119,7 +140,13 @@ def call_llm(
                 messages=messages,
                 output_format=LlmProposal,
             )
-        except ValueError as e:  # pydantic ValidationError / bad JSON from parse
+        except Exception as e:
+            if (unavailable := _unavailable(e)) is not None:
+                _write_replay(replay_dir, stem, f"reply{attempt}", {"error": unavailable.reason})
+                raise unavailable from e
+            if not isinstance(e, ValueError):
+                raise
+            # pydantic ValidationError / bad JSON from parse
             last_error = str(e)[:1500]
             _write_replay(replay_dir, stem, f"reply{attempt}", {"error": last_error})
             continue

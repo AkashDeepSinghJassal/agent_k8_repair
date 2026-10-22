@@ -14,9 +14,9 @@ from ..config import Settings, get_settings
 from ..knowledge import RecipeStore, default_store
 from ..models import Proposal
 from . import rules, templates
-from .llm import InvalidOutput, LlmProposal, call_llm, make_client
+from .llm import InvalidOutput, LlmProposal, LlmUnavailable, call_llm, make_client
 
-__all__ = ["InvalidOutput", "LlmProposal", "analyze"]
+__all__ = ["InvalidOutput", "LlmProposal", "LlmUnavailable", "analyze"]
 
 log = logging.getLogger(__name__)
 LOW_CONFIDENCE = 0.5

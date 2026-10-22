@@ -81,3 +81,42 @@ def test_set_phase_analyzing_has_no_timestamp_and_rejects_unknown():
     assert patch["status"] == {"phase": "Analyzing", "attempts": 1}
     with pytest.raises(ValueError):
         set_phase(patch, "Nope")
+
+
+def test_signal_routed_to_open_incident_for_same_owner_container():
+    api = MagicMock()
+    api.list_namespaced_custom_object.return_value = {"items": [{
+        "metadata": {"name": "ri-other"},
+        "spec": {"source": {"kind": "Pod", "owner": "Deployment/api", "container": "api", "classHint": "CRASH_LOOP"}},
+        "status": {"phase": "Collected"},
+    }]}
+    src = {"kind": "Pod", "name": "p", "owner": "Deployment/api", "container": "api", "reason": "OOMKilled", "classHint": "OOM_KILLED"}
+    out = open_incident(api, "demo", src, FP)
+    assert out["metadata"]["name"] == "ri-other"
+    api.create_namespaced_custom_object.assert_not_called()
+    assert api.patch_namespaced_custom_object_status.call_args.args[-1]["status"]["signals"][0]["reason"] == "OOMKilled"
+    assert api.patch_namespaced_custom_object.call_args.args[-1]["spec"]["source"]["classHint"] == "OOM_KILLED"
+    # a terminal sibling does not absorb the signal
+    api.list_namespaced_custom_object.return_value["items"][0]["status"]["phase"] = "Healed"
+    open_incident(api, "demo", src, FP)
+    api.create_namespaced_custom_object.assert_called_once()
+
+
+def test_no_handler_requires_a_finalizer():
+    import kopf
+
+    from repair_operator import main  # noqa: F401  (registers handlers)
+
+    reg = kopf.get_default_registry()
+    assert not list(reg._spawning._handlers)  # no timers/daemons
+    assert not any(h.requires_finalizer for h in reg._changing._handlers)
+
+
+def test_keep_polling_retries_only_while_phase_unchanged():
+    import kopf
+
+    from repair_operator.models import Phase
+
+    with pytest.raises(kopf.TemporaryError):
+        incidents.keep_polling({}, Phase.VERIFYING, 5)
+    incidents.keep_polling({"status": {"phase": "Healed"}}, Phase.VERIFYING, 5)

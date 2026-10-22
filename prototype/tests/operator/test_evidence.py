@@ -313,3 +313,19 @@ def test_collect_step_still_debouncing():
     body = {"status": {"timestamps": {"detected": "2026-11-03T10:01:00Z"}}}
     patch: dict = {}
     assert main.collect_step(body, patch, 60, NOW, clients=(None, None, None)) > 0 and patch == {}
+
+
+def test_evidence_files_are_scoped_by_incident_uid(tmp_path, monkeypatch):
+    from repair_operator import evidence
+    from repair_operator.config import Settings
+    from repair_operator.repair_flow import load_bundle
+
+    old = {"incident": "ri-x", "marker": "old"}
+    new = {"incident": "ri-x", "marker": "new"}
+    monkeypatch.setattr(evidence, "validate", lambda b: None)  # schema is covered elsewhere
+    evidence.store(old, 1, tmp_path, "aaaaaaaa")
+    evidence.store(new, 1, tmp_path, "bbbbbbbb")
+    s = Settings(state_dir=tmp_path)
+    assert load_bundle("ri-x", 1, s, "bbbbbbbb")["marker"] == "new"
+    assert load_bundle("ri-x", 1, s, "cccccccc") is None
+    assert evidence.uid_tag({"metadata": {"uid": "1234abcd-ffff"}}) == "1234abcd"

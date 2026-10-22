@@ -212,3 +212,14 @@ def test_pr_number_parsing():
 def test_approver_default(monkeypatch):
     monkeypatch.delenv("REPAIR_APPROVER", raising=False)
     assert actions.approver()
+
+
+def test_fault_state_persists_across_restarts(tmp_path):
+    from repair_dashboard.actions import FaultState
+
+    path = tmp_path / "sub" / "dashboard-faults.json"
+    st = FaultState(path)
+    ts = st.mark("f1")
+    assert FaultState(path).injected == {"f1": ts}
+    st.clear("f1")
+    assert FaultState(path).injected == {}

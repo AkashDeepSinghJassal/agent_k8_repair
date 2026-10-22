@@ -96,10 +96,11 @@ def on_proposed(body, patch, **_):
     propose_step(body, patch)
 
 
-@kopf.timer(
-    GROUP, VERSION, PLURAL, interval=PR_POLL_SECONDS, initial_delay=10,
-    when=lambda status, **_: (status or {}).get("phase") == Phase.AWAITING_REVIEW.value,
-)
+@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.AWAITING_REVIEW.value)
 def on_review_poll(body, patch, **_):
-    """AwaitingReview -> Merged | Analyzing (changes requested) | Failed (closed)."""
+    """AwaitingReview -> Merged | Analyzing (changes requested) | Failed (closed).
+
+    Polls by retrying (not ``@kopf.timer``, which would add a finalizer to the incident).
+    """
     review_step(body, patch)
+    incidents.keep_polling(patch, Phase.AWAITING_REVIEW, PR_POLL_SECONDS)
