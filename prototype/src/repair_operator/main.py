@@ -23,6 +23,8 @@ from .repair_flow import analyze_step, propose_step, review_step
 
 log = logging.getLogger(__name__)
 
+PR_POLL_SECONDS = 30  # how often an open PR is polled for merge / review (issue #10)
+
 
 def debounce_remaining(detected_iso: str | None, debounce: int, now: datetime | None = None) -> float:
     """Seconds still to wait before collecting evidence (0 when the debounce has elapsed)."""
@@ -95,7 +97,7 @@ def on_proposed(body, patch, **_):
 
 
 @kopf.timer(
-    GROUP, VERSION, PLURAL, interval=60, initial_delay=30,
+    GROUP, VERSION, PLURAL, interval=PR_POLL_SECONDS, initial_delay=10,
     when=lambda status, **_: (status or {}).get("phase") == Phase.AWAITING_REVIEW.value,
 )
 def on_review_poll(body, patch, **_):

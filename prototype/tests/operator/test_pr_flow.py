@@ -406,3 +406,10 @@ def test_collection_failure_does_not_block_analysis(tmp_path):
     env.status["attempts"] = 2  # a re-analysis, collection raises
     env.analyze()
     assert env.status["phase"] == "Proposed" and seen == ["OOMKilled"]
+
+
+def test_pr_poll_interval_is_30_seconds():
+    from repair_operator import main
+
+    assert main.PR_POLL_SECONDS == 30
+    assert getattr(main.on_review_poll, "__name__", "") == "on_review_poll"
