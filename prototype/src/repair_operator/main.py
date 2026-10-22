@@ -14,7 +14,7 @@ from . import (
     detectors,  # noqa: F401  (registers the detector handlers)
     evidence,
     incidents,
-    retrigger,
+    verify_handlers,  # noqa: F401
 )
 from .config import get_settings
 from .incidents import GROUP, PLURAL, VERSION
@@ -56,13 +56,6 @@ def analyze_hook(body: dict, patch: dict) -> None:
     incidents.set_phase(patch, Phase.ANALYZING, attempts=(body.get("status") or {}).get("attempts", 0) + 1)
 
 
-def retrigger_hook(body: dict, patch: dict) -> None:
-    """Merged -> Verifying."""
-    result = retrigger.retrigger(body) or {}
-    incidents.set_phase(patch, Phase.VERIFYING, **result)
-    # TODO(#11): wait for Argo CD sync, resubmit the failed workflow, run the verify window.
-
-
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix=GROUP)
@@ -85,11 +78,6 @@ def on_detected(body, patch, **_):
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.COLLECTED.value)
 def on_collected(body, patch, **_):
     analyze_hook(body, patch)
-
-
-@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.MERGED.value)
-def on_merged(body, patch, **_):
-    retrigger_hook(body, patch)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.ANALYZING.value)
