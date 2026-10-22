@@ -132,6 +132,10 @@ def proposal(find="memory: 128Mi", replace="memory: 256Mi", tier=3, fixable=True
     )
 
 
+def _no_cluster(*_a, **_k):
+    raise RuntimeError("no cluster in unit tests")
+
+
 class Env:
     def __init__(self, tmp_path, analyze_fn, **settings):
         self.settings = Settings(state_dir=tmp_path, **settings)
@@ -141,6 +145,7 @@ class Env:
         (tmp_path / "evidence" / f"{NAME}-1.json").write_text(json.dumps(bundle))
         self.repo = FakeRepo({PATH: FIX.read_text()})
         self.analyze_fn = analyze_fn
+        self.collect_fn = _no_cluster
         self.body = {"metadata": {"name": NAME}, "status": {"phase": "Collected", "attempts": 1, "evidenceRef": "sha256:x", "signature": "sig"}}
 
     def apply(self, patch):
@@ -148,7 +153,7 @@ class Env:
 
     def analyze(self, **kw):
         p: dict = {}
-        repair_flow.analyze_step(self.body, p, repo=self.repo, analyze_fn=self.analyze_fn, guard_skip=SKIP, settings=self.settings, **kw)
+        repair_flow.analyze_step(self.body, p, repo=self.repo, analyze_fn=self.analyze_fn, guard_skip=SKIP, settings=self.settings, collect_fn=self.collect_fn, **kw)
         self.apply(p)
 
     def propose(self):
@@ -347,3 +352,57 @@ def test_main_handlers_registered():
     from repair_operator import main
 
     assert callable(main.on_analyzing) and callable(main.on_proposed) and callable(main.on_review_poll)
+
+
+def _bundle(name, marker):
+    return {"incident": name, "signature": "sig", "git": {"path": PATH}, "marker": marker,
+            "source": {"owner": "Deployment/api", "container": "api"}, "events": []}
+
+
+def test_load_bundle_prefers_current_attempt_then_newest(tmp_path):
+    env, _ = make_env(tmp_path, lambda b, f=None, **k: proposal())
+    ev = tmp_path / "evidence"
+    (ev / f"{NAME}-3.json").write_text(json.dumps(_bundle(NAME, "three")))
+    assert repair_flow.load_bundle(NAME, 1, env.settings).get("marker") is None  # exact attempt 1
+    assert repair_flow.load_bundle(NAME, 3, env.settings)["marker"] == "three"
+    assert repair_flow.load_bundle(NAME, 2, env.settings)["marker"] == "three"  # no -2: newest
+    assert repair_flow.load_bundle("other", 1, env.settings) is None
+
+
+def test_reanalysis_collects_fresh_bundle_and_uses_it(tmp_path):
+    seen, collected = [], []
+
+    def fn(bundle, feedback=None, **_):
+        seen.append(bundle.get("marker"))
+        return proposal(find=cur, replace="memory: 1Gi")
+
+    def collect(core, custom, gh, incident, *, attempt, state_dir):
+        collected.append(attempt)
+        (state_dir / "evidence" / f"{NAME}-{attempt}.json").write_text(json.dumps(_bundle(NAME, f"fresh-{attempt}")))
+        return {"evidenceRef": f"sha256:fresh{attempt}", "signature": "sig"}
+
+    env, cur = make_env(tmp_path, fn)
+    env.collect_fn = collect
+    env.analyze()  # attempt 1: the original bundle, nothing collected
+    assert collected == [] and seen == [None]
+    env.propose()
+    env.repo.prs[0].review("CHANGES_REQUESTED", "no")
+    env.review()
+    assert env.status["attempts"] == 2
+    env.analyze()
+    assert collected == [2] and seen[-1] == "fresh-2"
+    assert (tmp_path / "evidence" / f"{NAME}-2.json").exists()
+    assert env.status["evidenceRef"] == "sha256:fresh2"
+
+
+def test_collection_failure_does_not_block_analysis(tmp_path):
+    seen = []
+
+    def fn(bundle, feedback=None, **_):
+        seen.append(bundle["failure"]["reason"])
+        return proposal(find=cur, replace="memory: 1Gi")
+
+    env, cur = make_env(tmp_path, fn)
+    env.status["attempts"] = 2  # a re-analysis, collection raises
+    env.analyze()
+    assert env.status["phase"] == "Proposed" and seen == ["OOMKilled"]

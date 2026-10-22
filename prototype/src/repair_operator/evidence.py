@@ -363,9 +363,14 @@ def collect_and_store(
     *,
     now: datetime | None = None,
     state_dir: Path | None = None,
+    attempt: int | None = None,
 ) -> dict:
-    """Collect, validate and store; returns ``{"evidenceRef", "signature"}``."""
-    attempt = ((incident.get("status") or {}).get("attempts") or 0) + 1
+    """Collect, validate and store; returns ``{"evidenceRef", "signature"}``.
+
+    ``attempt`` names the bundle file; default: one past ``status.attempts``.
+    """
+    if attempt is None:
+        attempt = ((incident.get("status") or {}).get("attempts") or 0) + 1
     bundle = collect(core_api, custom_api, github, incident, now=now)
     ref = store(bundle, attempt, state_dir)
     return {"evidenceRef": ref, "signature": bundle["signature"]}

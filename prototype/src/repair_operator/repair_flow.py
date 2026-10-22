@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import git_writer, guardrails, incidents
+from . import evidence, git_writer, guardrails, incidents
 from .analyzer import InvalidOutput
 from .analyzer import analyze as default_analyze
 from .config import Settings, get_settings
@@ -30,18 +30,44 @@ def _repo(repo: Any, settings: Settings) -> Any:
     return git_writer.repo_client(settings)
 
 
-def load_bundle(name: str, attempts: int, settings: Settings) -> dict | None:
-    """Latest evidence bundle ``<name>-<n>.json`` with n <= attempts (falls back to any)."""
+def _bundle_files(name: str, settings: Settings) -> dict[int, Path]:
     base = Path(settings.state_dir).expanduser() / "evidence"
     found: dict[int, Path] = {}
     for p in base.glob(f"{name}-*.json"):
         suffix = p.stem[len(name) + 1 :]
         if suffix.isdigit():
             found[int(suffix)] = p
-    usable = [n for n in found if n <= max(attempts, 1)] or list(found)
-    if not usable:
+    return found
+
+
+def load_bundle(name: str, attempts: int, settings: Settings) -> dict | None:
+    """Evidence bundle ``<name>-<attempts>.json``; falls back to the newest bundle."""
+    found = _bundle_files(name, settings)
+    if not found:
         return None
-    return json.loads(found[max(usable)].read_text())
+    return json.loads(found.get(attempts, found[max(found)]).read_text())
+
+
+def refresh_evidence(
+    body: dict, attempts: int, settings: Settings, patch: dict, *, collect_fn: Callable[..., dict] | None = None
+) -> None:
+    """Collect a fresh bundle for ``attempts`` when re-analysing (attempt > 1) and none exists yet.
+
+    Failures are logged and ignored: analysis then uses the newest older bundle.
+    """
+    name = body["metadata"]["name"]
+    if attempts <= 1 or attempts in _bundle_files(name, settings):
+        return
+    try:
+        if collect_fn is None:
+            collect_fn = evidence.collect_and_store
+            clients = evidence.default_clients()
+        else:
+            clients = (None, None, None)
+        result = collect_fn(*clients, body, attempt=attempts, state_dir=Path(settings.state_dir))
+        patch.setdefault("status", {})["evidenceRef"] = result["evidenceRef"]
+    except Exception:
+        log.exception("%s: could not collect fresh evidence for attempt %d, using the newest bundle", name, attempts)
 
 
 def _classification(p: Proposal) -> dict:
@@ -98,14 +124,20 @@ def analyze_step(
     settings: Settings | None = None,
     store: Any = None,
     now: datetime | None = None,
+    collect_fn: Callable[..., dict] | None = None,
 ) -> None:
-    """Analyzing -> Proposed | Escalated. Retries internally on invalid LLM output or guardrail rejection."""
+    """Analyzing -> Proposed | Escalated. Retries internally on invalid LLM output or guardrail rejection.
+
+    A re-analysis (attempt > 1) first collects a fresh evidence bundle for that attempt.
+    """
     settings = settings or get_settings()
     name = body["metadata"]["name"]
     status = body.get("status") or {}
     attempts = status.get("attempts") or 1
     feedback = list(status.get("reviewFeedback") or [])
     last_reason: str | None = None
+    if attempts <= settings.max_attempts:
+        refresh_evidence(body, attempts, settings, patch, collect_fn=collect_fn)
 
     while True:
         if attempts > settings.max_attempts:
