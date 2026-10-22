@@ -42,7 +42,7 @@ def merged_step(body: dict, patch: dict, custom_api: Any, now: datetime | None =
     ns = body["metadata"]["namespace"]
     sha = merge_sha(status)
     if not sha:
-        _close(patch, Phase.FAILED, "missing_merge_sha", now)
+        _close(patch, Phase.FAILED, "missing_merge_sha", now, body)
         return 0.0
     try:
         retrigger.refresh_app(custom_api, ns)
@@ -52,23 +52,25 @@ def merged_step(body: dict, patch: dict, custom_api: Any, now: datetime | None =
         app = {}
     if not retrigger.is_synced(app, sha):
         if retrigger.sync_timed_out((status.get("timestamps") or {}).get("merged"), now):
-            _close(patch, Phase.FAILED, "sync_timeout", now)
+            _close(patch, Phase.FAILED, "sync_timeout", now, body)
             return 0.0
         return float(SYNC_POLL_SECONDS)
     verify: dict[str, Any] = {"startedAt": retrigger.iso(now), "healthySince": None}
     rerun = retrigger.retrigger(body, custom_api=custom_api)
     if rerun:
         verify["rerun"] = rerun["rerun"]["name"]
-    incidents.set_phase(patch, Phase.VERIFYING, now, verify=verify)
+    incidents.set_phase(patch, Phase.VERIFYING, now, incident=body, verify=verify)
     return 0.0
 
 
 # --- Verifying -> Healed | Analyzing | Escalated ---------------------------------
 
 
-def _close(patch: dict, phase: Phase, reason: str, now: datetime | None = None) -> None:
+def _close(
+    patch: dict, phase: Phase, reason: str, now: datetime | None = None, incident: dict | None = None
+) -> None:
     result = {Phase.FAILED: "failed", Phase.ESCALATED: "escalated", Phase.HEALED: "healed"}[phase]
-    incidents.set_phase(patch, phase, now, outcome={"result": result, "reason": reason})
+    incidents.set_phase(patch, phase, now, incident=incident, outcome={"result": result, "reason": reason})
 
 
 def verify_step(
@@ -95,19 +97,19 @@ def verify_step(
         if out:
             patch.setdefault("status", {}).setdefault("verify", {}).update(out)
     elif verdict.state == "healed":
-        _close(patch, Phase.HEALED, verdict.reason, now)
+        _close(patch, Phase.HEALED, verdict.reason, now, body)
     elif verdict.state == "failed":
         feedback = list(status.get("reviewFeedback") or [])
         feedback.append("re-run failed: " + "; ".join([verdict.reason, *verdict.details]))
         attempts = (status.get("attempts") or 0) + 1  # this failed verification consumed an attempt
         if attempts > max_attempts:  # same comparison as repair_flow.analyze_step
             incidents.set_phase(
-                patch, Phase.ESCALATED, now, reviewFeedback=feedback, verify=None, attempts=attempts,
+                patch, Phase.ESCALATED, now, incident=body, reviewFeedback=feedback, verify=None, attempts=attempts,
                 outcome={"result": "escalated", "reason": f"attempts exhausted: {verdict.reason}"},
             )
         else:
             incidents.set_phase(
-                patch, Phase.ANALYZING, now, reviewFeedback=feedback, verify=None, attempts=attempts
+                patch, Phase.ANALYZING, now, incident=body, reviewFeedback=feedback, verify=None, attempts=attempts
             )
     return verdict.state
 

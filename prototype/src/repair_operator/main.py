@@ -45,7 +45,7 @@ def collect_step(
     if remaining > 0:
         return remaining
     if not (body.get("spec") or {}).get("source"):  # nothing to collect from
-        incidents.set_phase(patch, Phase.COLLECTED, now)
+        incidents.set_phase(patch, Phase.COLLECTED, now, incident=body)
         return 0.0
     evidence.handle_collect(body, patch, clients, now)
     return 0.0
@@ -53,7 +53,9 @@ def collect_step(
 
 def analyze_hook(body: dict, patch: dict) -> None:
     """Collected -> Analyzing, then the analyzer runs."""
-    incidents.set_phase(patch, Phase.ANALYZING, attempts=(body.get("status") or {}).get("attempts", 0) + 1)
+    incidents.set_phase(
+        patch, Phase.ANALYZING, incident=body, attempts=(body.get("status") or {}).get("attempts", 0) + 1
+    )
 
 
 @kopf.on.startup()
@@ -65,7 +67,7 @@ def configure(settings: kopf.OperatorSettings, **_):
 
 @kopf.on.create(GROUP, VERSION, PLURAL)
 def incident_created(body, patch, **_):
-    incidents.set_phase(patch, Phase.DETECTED)
+    incidents.set_phase(patch, Phase.DETECTED, incident=body)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.DETECTED.value)

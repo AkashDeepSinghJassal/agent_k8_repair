@@ -96,9 +96,12 @@ def _record(store: Any, status: dict, outcome: str, settings: Settings) -> None:
         log.exception("record_outcome(%s) failed", outcome)
 
 
-def _escalate(patch: dict, reason: str, now: datetime | None, repo: Any, status: dict, **fields: Any) -> None:
+def _escalate(
+    patch: dict, reason: str, now: datetime | None, repo: Any, status: dict,
+    incident: dict | None = None, **fields: Any,
+) -> None:
     incidents.set_phase(
-        patch, Phase.ESCALATED, now, outcome={"result": "escalated", "reason": reason}, **fields
+        patch, Phase.ESCALATED, now, incident=incident, outcome={"result": "escalated", "reason": reason}, **fields
     )
     number = _pr_number(status.get("pullRequest"))
     if number and repo is not None:
@@ -144,12 +147,12 @@ def analyze_step(
             gh = repo
             if gh is None and settings.github_token and status.get("pullRequest"):
                 gh = _repo(None, settings)
-            _escalate(patch, last_reason or "max_attempts", now, gh, status, attempts=attempts, reviewFeedback=feedback)
+            _escalate(patch, last_reason or "max_attempts", now, gh, status, incident=body, attempts=attempts, reviewFeedback=feedback)
             _record(store, status, "escalated", settings)
             return
         bundle = load_bundle(name, attempts, settings)
         if bundle is None:
-            _escalate(patch, "evidence_missing", now, None, status, attempts=attempts)
+            _escalate(patch, "evidence_missing", now, None, status, incident=body, attempts=attempts)
             return
         try:
             proposal = analyze_fn(bundle, feedback or None, store=store) if store else analyze_fn(bundle, feedback or None)
@@ -162,13 +165,13 @@ def analyze_step(
         common = {"classification": _classification(proposal), "attempts": attempts, "reviewFeedback": feedback}
         if settings.shadow_mode:
             incidents.set_phase(
-                patch, Phase.ESCALATED, now, shadow=True, proposal=_proposal_status(proposal),
+                patch, Phase.ESCALATED, now, incident=body, shadow=True, proposal=_proposal_status(proposal),
                 outcome={"result": "escalated", "reason": "shadow_mode"}, **common,
             )
             return
         if proposal.tier == 4 or not proposal.fixable_in_git:
             incidents.set_phase(
-                patch, Phase.ESCALATED, now, proposal=_proposal_status(proposal),
+                patch, Phase.ESCALATED, now, incident=body, proposal=_proposal_status(proposal),
                 outcome={"result": "escalated", "reason": "not_fixable_in_git"}, **common,
             )
             return
@@ -198,7 +201,7 @@ def analyze_step(
             continue
 
         incidents.set_phase(
-            patch, Phase.PROPOSED, now, proposal=_proposal_status(proposal),
+            patch, Phase.PROPOSED, now, incident=body, proposal=_proposal_status(proposal),
             outcome=None, **common,
         )
         return
@@ -226,7 +229,7 @@ def propose_step(
         gh, name, proposal, new_text, attempts,
         bundle=bundle, evidence_ref=status.get("evidenceRef"), verify_window=settings.verify_window_seconds,
     )
-    incidents.set_phase(patch, Phase.AWAITING_REVIEW, now, pullRequest=pr.html_url)
+    incidents.set_phase(patch, Phase.AWAITING_REVIEW, now, incident=body, pullRequest=pr.html_url)
 
 
 def review_step(
@@ -248,16 +251,16 @@ def review_step(
     state = git_writer.poll_pr(gh, number, status.get("reviewCursor"))
     if state.state == "merged":
         _record(store, status, "approved", settings)
-        incidents.set_phase(patch, Phase.MERGED, now, mergeSha=state.merge_sha)
+        incidents.set_phase(patch, Phase.MERGED, now, incident=body, mergeSha=state.merge_sha)
     elif state.state == "closed":
         _record(store, status, "rejected", settings)
         incidents.set_phase(
-            patch, Phase.FAILED, now, outcome={"result": "failed", "reason": "rejected_by_reviewer"}
+            patch, Phase.FAILED, now, incident=body, outcome={"result": "failed", "reason": "rejected_by_reviewer"}
         )
     elif state.state == "changes_requested":
         _record(store, status, "rejected", settings)
         incidents.set_phase(
-            patch, Phase.ANALYZING, now,
+            patch, Phase.ANALYZING, now, incident=body,
             attempts=(status.get("attempts") or 1) + 1,
             reviewFeedback=[*(status.get("reviewFeedback") or []), *state.feedback],
             reviewCursor=state.cursor,

@@ -415,7 +415,7 @@ def handle_collect(
     core_api, custom_api, github = clients if clients is not None else default_clients()
     reason = recovered(core_api, body)
     if reason:
-        incidents.set_phase(patch, Phase.DISMISSED, now, outcome={"result": "dismissed", "reason": reason})
+        incidents.set_phase(patch, Phase.DISMISSED, now, incident=body, outcome={"result": "dismissed", "reason": reason})
         return
     result = collect_and_store(core_api, custom_api, github, body, now=now)
-    incidents.set_phase(patch, Phase.COLLECTED, now, **result)
+    incidents.set_phase(patch, Phase.COLLECTED, now, incident=body, **result)
