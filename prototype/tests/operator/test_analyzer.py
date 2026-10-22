@@ -345,3 +345,10 @@ def test_call_llm_maps_billing_errors_to_unavailable(settings):
     other = anthropic.BadRequestError("schema nonsense", response=httpx.Response(400, request=req), body=None)
     with pytest.raises(anthropic.BadRequestError):
         call_llm(bundle(), [], None, client=Boom(other), settings=settings)
+
+
+def test_raise_memory_limit_honours_llm_value_within_clamp():
+    b = bundle()
+    out = lambda lim: apply(DEPLOY, templates.render("raise_memory_limit", b, {"container": "api", "new_limit": lim}))
+    assert "memory: 192Mi" in out("129Mi")  # floor 1.5x of 128Mi
+    assert "memory: 384Mi" in out("384Mi")  # inside [1.5x, 4x]

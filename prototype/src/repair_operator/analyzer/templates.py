@@ -18,6 +18,7 @@ MI = 1024**2
 GI = 1024**3
 MEMORY_CAP = GI
 MAX_FACTOR = 4
+MIN_FACTOR = 1.5
 
 _QTY = re.compile(r"^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|k|K|M|G|T)?$")
 _UNITS = {None: 1, "Ki": 1024, "Mi": MI, "Gi": GI, "Ti": 1024**4, "k": 10**3, "K": 10**3, "M": 10**6, "G": 10**9, "T": 10**12}
@@ -102,7 +103,8 @@ def raise_memory_limit(bundle: dict, params: dict) -> list[Edit] | None:
                 want = parse_quantity(params["new_limit"]) if params.get("new_limit") else old * 2
                 if want is None:
                     return None
-                new = min(want, ceiling)
+                new = max(min(want, ceiling), int(old * MIN_FACTOR))
+                new = min(new, ceiling)
                 if new <= old:
                     return None  # already at the cap; a bigger limit needs a human
                 new_line = f"{m.group(1)}memory: {format_quantity(new)}"
