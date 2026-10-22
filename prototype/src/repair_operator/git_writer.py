@@ -69,8 +69,8 @@ def render_body(
     )
 
 
-def _find_pr(repo: Any, branch: str) -> Any | None:
-    for pr in repo.get_pulls(state="all", head=f"{repo.owner.login}:{branch}"):
+def _find_pr(repo: Any, branch: str, state: str = "open") -> Any | None:
+    for pr in repo.get_pulls(state=state, head=f"{repo.owner.login}:{branch}"):
         return pr
     return None
 
@@ -94,7 +94,12 @@ def open_or_update_pr(
     branch = branch_name(incident)
     try:
         repo.get_branch(branch)
-    except Exception:  # noqa: BLE001 - 404 -> create from the default branch
+        # The incident name is deterministic: a branch whose PR was already merged or closed belongs to an
+        # earlier incident with the same fingerprint. Start over from the default branch instead of reusing it.
+        if _find_pr(repo, branch) is None and _find_pr(repo, branch, "closed") is not None:
+            repo.get_git_ref(f"heads/{branch}").delete()
+            raise LookupError(branch)
+    except Exception:  # noqa: BLE001 - 404 (or just deleted) -> create from the default branch
         repo.create_git_ref(ref=f"refs/heads/{branch}", sha=repo.get_branch(repo.default_branch).commit.sha)
     current = repo.get_contents(proposal.file, ref=branch)
     if current.decoded_content.decode("utf-8") != new_content:
