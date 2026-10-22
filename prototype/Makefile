@@ -14,7 +14,7 @@ cluster-down:
 	@echo "see #3"
 
 operator:
-	@echo "see #4"
+	uv run kopf run -m repair_operator.main --all-namespaces --verbose
 
 dashboard:
 	@echo "see #5"
