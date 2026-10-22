@@ -14,7 +14,7 @@ cluster-down:
 	bash cluster/teardown.sh
 
 operator:
-	@echo "see #4"
+	uv run kopf run -m repair_operator.main --all-namespaces --verbose
 
 dashboard:
 	@echo "see #5"
