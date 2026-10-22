@@ -19,6 +19,7 @@ from . import (
 from .config import get_settings
 from .incidents import GROUP, PLURAL, VERSION
 from .models import Phase
+from .repair_flow import analyze_step, propose_step, review_step
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,6 @@ def collect_step(
 def analyze_hook(body: dict, patch: dict) -> None:
     """Collected -> Analyzing, then the analyzer runs."""
     incidents.set_phase(patch, Phase.ANALYZING, attempts=(body.get("status") or {}).get("attempts", 0) + 1)
-    # TODO(#7/#10): analyze(bundle, feedback) -> Proposal; guardrails; open or update the PR.
 
 
 def retrigger_hook(body: dict, patch: dict) -> None:
@@ -90,3 +90,24 @@ def on_collected(body, patch, **_):
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.MERGED.value)
 def on_merged(body, patch, **_):
     retrigger_hook(body, patch)
+
+
+@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.ANALYZING.value)
+def on_analyzing(body, patch, **_):
+    """Analyzing -> Proposed | Escalated (analyzer + guardrails, retries internally)."""
+    analyze_step(body, patch)
+
+
+@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.PROPOSED.value)
+def on_proposed(body, patch, **_):
+    """Proposed -> AwaitingReview (branch + PR)."""
+    propose_step(body, patch)
+
+
+@kopf.timer(
+    GROUP, VERSION, PLURAL, interval=60, initial_delay=30,
+    when=lambda status, **_: (status or {}).get("phase") == Phase.AWAITING_REVIEW.value,
+)
+def on_review_poll(body, patch, **_):
+    """AwaitingReview -> Merged | Analyzing (changes requested) | Failed (closed)."""
+    review_step(body, patch)
