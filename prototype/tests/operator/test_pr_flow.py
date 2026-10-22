@@ -413,3 +413,19 @@ def test_pr_poll_interval_is_30_seconds():
 
     assert main.PR_POLL_SECONDS == 30
     assert getattr(main.on_review_poll, "__name__", "") == "on_review_poll"
+
+
+def test_llm_unavailable_escalates_immediately(tmp_path):
+    from repair_operator.analyzer import LlmUnavailable
+
+    calls = []
+
+    def fn(b, f=None, **k):
+        calls.append(1)
+        raise LlmUnavailable("credit balance is too low")
+
+    env, _ = make_env(tmp_path, fn, max_attempts=3)
+    env.analyze()
+    assert len(calls) == 1
+    assert env.status["phase"] == "Escalated"
+    assert env.status["outcome"]["reason"] == "llm_unavailable: credit balance is too low"

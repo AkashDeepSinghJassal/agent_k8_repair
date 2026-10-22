@@ -322,3 +322,26 @@ def test_injection_in_logs_stays_data(store, settings):
 def test_prompt_is_packaged_and_declares_untrusted():
     text = load_system_prompt()
     assert "untrusted" in text.lower() and "<evidence>" in text and "UNSCHEDULABLE" in text
+
+
+def test_call_llm_maps_billing_errors_to_unavailable(settings):
+    import anthropic
+    import httpx
+
+    from repair_operator.analyzer.llm import LlmUnavailable, call_llm
+
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+    class Boom:
+        def __init__(self, exc):
+            self.messages = SimpleNamespace(parse=lambda **k: (_ for _ in ()).throw(exc))
+
+    bad = anthropic.BadRequestError("Your credit balance is too low", response=httpx.Response(400, request=req), body=None)
+    with pytest.raises(LlmUnavailable, match="credit"):
+        call_llm(bundle(), [], None, client=Boom(bad), settings=settings)
+    auth = anthropic.AuthenticationError("invalid x-api-key", response=httpx.Response(401, request=req), body=None)
+    with pytest.raises(LlmUnavailable):
+        call_llm(bundle(), [], None, client=Boom(auth), settings=settings)
+    other = anthropic.BadRequestError("schema nonsense", response=httpx.Response(400, request=req), body=None)
+    with pytest.raises(anthropic.BadRequestError):
+        call_llm(bundle(), [], None, client=Boom(other), settings=settings)

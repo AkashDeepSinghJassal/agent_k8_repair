@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from . import evidence, git_writer, guardrails, incidents
-from .analyzer import InvalidOutput
+from .analyzer import InvalidOutput, LlmUnavailable
 from .analyzer import analyze as default_analyze
 from .config import Settings, get_settings
 from .models import Phase, Proposal
@@ -161,6 +161,10 @@ def analyze_step(
             return
         try:
             proposal = analyze_fn(bundle, feedback or None, store=store) if store else analyze_fn(bundle, feedback or None)
+        except LlmUnavailable as exc:
+            log.error("%s: LLM unavailable: %s", name, exc.reason)
+            _escalate(patch, f"llm_unavailable: {exc.reason[:160]}", now, None, status, incident=body, attempts=attempts)
+            return
         except InvalidOutput as exc:
             last_reason = exc.reason
             log.warning("%s attempt %d: invalid_output", name, attempts)
