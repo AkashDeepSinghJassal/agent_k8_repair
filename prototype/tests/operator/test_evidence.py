@@ -227,6 +227,19 @@ def test_workflow_bundle():
     assert core.log_calls[0]["container"] == "main"
 
 
+def test_workflow_git_path_falls_back_to_template_file():
+    wf = {
+        "metadata": {"name": "wf-1"},
+        "spec": {"workflowTemplateRef": {"name": "release-pipeline"}},
+        "status": {"nodes": {"n": {"id": "n", "type": "Pod", "displayName": "test", "phase": "Failed"}}},
+    }
+    b = evidence.collect(FakeCore(), FakeCustom(wf), FakeRepo(), wf_incident(), now=NOW)
+    assert b["git"]["path"] == "workflows/release-pipeline.yaml"
+    wf["spec"] = {}
+    b = evidence.collect(FakeCore(), FakeCustom(wf), FakeRepo(), wf_incident(), now=NOW)
+    assert b["git"]["path"] == "workflows/build.yaml"
+
+
 def test_schema_rejects_bad_bundle():
     b = evidence.collect(FakeCore(pod()), None, None, pod_incident(), now=NOW)
     b["events"] = [{"reason": "x", "message": "m", "count": 1}] * 21

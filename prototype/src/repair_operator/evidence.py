@@ -202,7 +202,7 @@ def _workflow_section(core_api: Any, custom_api: Any, ns: str, source: dict) -> 
         "logs": step_logs,
     }
     failure = {"reason": "WorkflowFailed", "exitCode": exit_code, "restartCount": 0, "message": message or None}
-    return section, failure, wf.get("metadata") or {}
+    return section, failure, wf
 
 
 # --- git ----------------------------------------------------------------------
@@ -262,8 +262,11 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
     workflow = None
 
     if source.get("kind") == "Workflow":
-        workflow, failure, meta = _workflow_section(core_api, custom_api, ns, source)
-        path = (meta.get("annotations") or {}).get(SOURCE_PATH_ANNOTATION)
+        workflow, failure, wf_obj = _workflow_section(core_api, custom_api, ns, source)
+        path = ((wf_obj.get("metadata") or {}).get("annotations") or {}).get(SOURCE_PATH_ANNOTATION)
+        if not path:
+            template = ((wf_obj.get("spec") or {}).get("workflowTemplateRef") or {}).get("name") or source.get("template")
+            path = f"workflows/{template}.yaml" if template else None
         spec = {"image": None, "resources": {}, "env": [], "envFrom": []}
         src = {
             "kind": "Workflow",
