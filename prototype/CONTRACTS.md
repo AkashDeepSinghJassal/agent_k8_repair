@@ -82,11 +82,21 @@ evidenceRef: str               # "sha256:<hex>"; bundle stored outside the CR
 classification: {class, confidence, source: rules|llm|recipe}
 proposal: {tier: 0|1|2|3|4, file, edits:[{find,replace}], template?, params?, rationale, needs_remeasure: bool, rejectedBy?: str}
 pullRequest: str (url)
+mergeSha: str                  # merge commit; set when the PR merged (Merged phase)
+reviewCursor: {...}            # which PR reviews/comments were already consumed (no double triggers)
+approvedBy: str                # reviewer who approved / merged
 reviewFeedback: [str]
+verify: {startedAt, healthySince, rerun, restarts}
+                               # startedAt: ISO time Verifying began; healthySince: start of the current
+                               # healthy stretch (null resets it); rerun: name of the resubmitted workflow
+                               # (workflow incidents); restarts: {podName: total restartCount} baselines
+learning: {recorded: bool, outcome: healed|approved|failed, mergedMatchesProposal: bool|null}
 outcome: {result: healed|failed|escalated|dismissed, reason?: str}
 shadow: bool
 timestamps: {detected, collected, analyzed, proposed, prOpened, merged, synced, verified, closed}
 ```
+
+Notes: `analyzer.analyze` raises `InvalidOutput` when the LLM output is unusable after its internal repair attempt; `repair_flow.analyze_step` retries (each retry consumes an attempt) and escalates once `attempts > max_attempts` (the same `>` comparison on the verify-failure path). Shadow mode (`REPAIR_SHADOW_MODE`) analyses but never opens a PR: the incident ends in `Escalated` with `outcome.reason: shadow_mode` and `shadow: true`. A verify window judges all current pods of the owner (Ready, no waiting error, unchanged restart counts, Application Healthy), so ConfigMap-only fixes work without recreated pods.
 
 Labels: `repair.example.dev/ignore: "true"` excludes a pod or workload from detection. `repair.example.dev/incident: <name>` marks a workflow resubmitted by the operator.
 
