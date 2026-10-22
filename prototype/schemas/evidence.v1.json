@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://repair.example.dev/schemas/evidence.v1.json",
+  "title": "Evidence bundle v1",
+  "type": "object",
+  "required": ["schema", "incident", "collectedAt", "signature", "source", "failure", "spec", "events", "logs", "workflow", "git", "history"],
+  "properties": {
+    "schema": {"const": "evidence/v1"},
+    "incident": {"type": "string", "minLength": 1},
+    "collectedAt": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"},
+    "signature": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
+    "source": {
+      "type": "object",
+      "required": ["kind", "namespace", "owner", "container"],
+      "properties": {
+        "kind": {"enum": ["Pod", "Workflow"]},
+        "name": {"type": "string"},
+        "namespace": {"type": "string"},
+        "owner": {"type": "string"},
+        "container": {"type": "string"}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "required": ["reason", "exitCode", "restartCount"],
+      "properties": {
+        "reason": {"type": "string"},
+        "exitCode": {"type": ["integer", "null"]},
+        "restartCount": {"type": "integer", "minimum": 0},
+        "message": {"type": ["string", "null"]}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["image", "resources", "env", "envFrom"],
+      "properties": {
+        "image": {"type": ["string", "null"]},
+        "resources": {"type": "object"},
+        "env": {"type": "array", "items": {"type": "string"}, "description": "variable names only"},
+        "envFrom": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["reason", "message", "count"],
+        "properties": {
+          "reason": {"type": ["string", "null"]},
+          "message": {"type": "string"},
+          "count": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "required": ["current", "previous"],
+      "properties": {
+        "current": {"type": "array", "maxItems": 200, "items": {"type": "string"}},
+        "previous": {"type": "array", "maxItems": 200, "items": {"type": "string"}}
+      }
+    },
+    "workflow": {
+      "type": ["object", "null"],
+      "required": ["name", "template", "node", "message", "logs"],
+      "properties": {
+        "name": {"type": "string"},
+        "template": {"type": "string"},
+        "node": {"type": "string"},
+        "phase": {"type": ["string", "null"]},
+        "message": {"type": "string"},
+        "logs": {"type": "array", "maxItems": 200, "items": {"type": "string"}}
+      }
+    },
+    "git": {
+      "type": ["object", "null"],
+      "required": ["repo", "path", "sha", "lastCommitDiff", "file"],
+      "properties": {
+        "repo": {"type": "string"},
+        "path": {"type": "string"},
+        "sha": {"type": ["string", "null"]},
+        "lastCommitDiff": {"type": "string", "description": "at most 400 lines"},
+        "file": {"type": "string", "description": "at most 400 lines"}
+      }
+    },
+    "history": {"type": "array"}
+  }
+}

@@ -32,15 +32,21 @@ def debounce_remaining(detected_iso: str | None, debounce: int, now: datetime | 
     return max(0.0, debounce - elapsed)
 
 
-def collect_step(body: dict, patch: dict, debounce: int, now: datetime | None = None) -> float:
-    """Detected -> Collected after the debounce. Returns the delay if still waiting, else 0."""
+def collect_step(
+    body: dict, patch: dict, debounce: int, now: datetime | None = None, clients: tuple | None = None
+) -> float:
+    """Detected -> Collected | Dismissed after the debounce. Returns the delay if still waiting, else 0.
+
+    ``clients`` is ``(core_api, custom_api, github)``; default: built from the environment.
+    """
     status = body.get("status") or {}
     remaining = debounce_remaining((status.get("timestamps") or {}).get("detected"), debounce, now)
     if remaining > 0:
         return remaining
-    # TODO(#6): evidence.collect also decides Dismissed (pod recovered within the debounce window)
-    result = evidence.collect(body) or {}
-    incidents.set_phase(patch, Phase.COLLECTED, **result)
+    if not (body.get("spec") or {}).get("source"):  # nothing to collect from
+        incidents.set_phase(patch, Phase.COLLECTED, now)
+        return 0.0
+    evidence.handle_collect(body, patch, clients, now)
     return 0.0
 
 
