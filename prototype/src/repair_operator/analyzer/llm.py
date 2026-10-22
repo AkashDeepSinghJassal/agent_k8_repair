@@ -1,7 +1,8 @@
-"""Stage 2: one structured Claude call (CONTRACTS section 7).
+"""Stage 2: one structured LLM call (CONTRACTS section 7) behind a small ``LlmClient`` protocol.
 
-Uses ``client.messages.parse(..., output_format=LlmProposal)``. No temperature and no thinking
-parameter (not supported by the configured model). The client is injectable for tests.
+``AnthropicClient``: ``messages.parse(..., output_format=LlmProposal)``, no temperature/thinking parameter.
+``GroqClient``: chat.completions with a strict JSON-schema response format, pydantic validation.
+``call_llm`` owns replay files and the one retry with the validation error appended. Clients are injectable.
 """
 
 from __future__ import annotations
@@ -11,9 +12,9 @@ import re
 import time
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
 from ..config import Settings
 from ..models import Edit
@@ -35,17 +36,16 @@ class LlmUnavailable(Exception):
         self.reason = reason
 
 
-def _unavailable(exc: Exception) -> LlmUnavailable | None:
-    try:
-        import anthropic
-    except ImportError:  # pragma: no cover
-        return None
-    msg = str(getattr(exc, "message", None) or exc)
-    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
-        return LlmUnavailable(msg[:200])
-    if isinstance(exc, anthropic.BadRequestError) and re.search(r"credit|billing", msg, re.IGNORECASE):
-        return LlmUnavailable(msg[:200])
-    return None
+class SchemaError(Exception):
+    """Reply was received but is not a valid LlmProposal (retryable once)."""
+
+
+class LlmClient(Protocol):
+    provider: str
+    model: str
+
+    def propose(self, system: str, user: str) -> LlmProposal:
+        """Return a validated proposal; raise SchemaError (retryable), InvalidOutput (refusal) or LlmUnavailable."""
 
 
 class Param(BaseModel):
@@ -72,6 +72,12 @@ class LlmProposal(BaseModel):
     rationale: str
     verify: str
     needs_remeasure: bool
+
+    _meta: dict = PrivateAttr(default_factory=dict)  # provider/model/latencyMs/usage; not part of the schema
+
+    @property
+    def meta(self) -> dict:
+        return self._meta
 
     def params_dict(self) -> dict[str, str]:
         return {p.key: p.value for p in self.params}
@@ -105,10 +111,157 @@ def _write_replay(replay_dir: Path | None, stem: str, name: str, payload: Any) -
         pass  # replay files are best effort
 
 
-def make_client(settings: Settings):
-    import anthropic
+def _strict_schema() -> dict:
+    """LlmProposal JSON schema with additionalProperties=false on every object (strict mode)."""
+    schema = LlmProposal.model_json_schema(by_alias=True)
 
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else anthropic.Anthropic()
+    def close(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" or "properties" in node:
+                node["additionalProperties"] = False
+                node["required"] = list(node.get("properties", {}))
+            for v in node.values():
+                close(v)
+        elif isinstance(node, list):
+            for v in node:
+                close(v)
+
+    close(schema)
+    schema.pop("title", None)
+    return schema
+
+
+def _unavailable_reason(exc: Exception) -> str | None:
+    """Reason string when the exception means 'retrying cannot help' (auth, permission, billing, quota)."""
+    msg = str(getattr(exc, "message", None) or exc)
+    for mod in ("anthropic", "groq"):
+        try:
+            sdk = __import__(mod)
+        except ImportError:  # pragma: no cover
+            continue
+        if isinstance(exc, (sdk.AuthenticationError, sdk.PermissionDeniedError)):
+            return msg[:200]
+        if isinstance(exc, sdk.BadRequestError) and re.search(r"credit|billing|quota", msg, re.IGNORECASE):
+            return msg[:200]
+    return None
+
+
+class AnthropicClient:
+    provider = "anthropic"
+
+    def __init__(self, raw: Any, model: str):
+        self.raw, self.model = raw, model
+
+    def propose(self, system: str, user: str) -> LlmProposal:
+        blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        try:
+            response = self.raw.messages.parse(
+                model=self.model, max_tokens=MAX_TOKENS, system=blocks,
+                messages=[{"role": "user", "content": user}], output_format=LlmProposal,
+            )
+        except Exception as e:
+            if (reason := _unavailable_reason(e)) is not None:
+                raise LlmUnavailable(reason) from e
+            if isinstance(e, ValueError):  # pydantic ValidationError / bad JSON from parse
+                raise SchemaError(str(e)[:1500]) from e
+            raise
+        if getattr(response, "stop_reason", None) == "refusal":
+            raise InvalidOutput("model refused")
+        parsed = getattr(response, "parsed_output", None)
+        if parsed is None:
+            raise SchemaError("no parsed output (truncated or empty reply)")
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            parsed.meta["usage"] = {"input": getattr(usage, "input_tokens", None), "output": getattr(usage, "output_tokens", None)}
+        return parsed
+
+
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+MAX_RATE_LIMIT_RETRIES = 2
+MAX_BACKOFF_SECONDS = 30.0
+
+
+def _extract_json(text: str) -> str:
+    text = _THINK.sub("", text or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    return text
+
+
+class GroqClient:
+    provider = "groq"
+    max_tokens = 8192  # gpt-oss spends part of the budget on reasoning
+
+    def __init__(self, raw: Any, model: str, reasoning_effort: str = "medium", sleep=time.sleep):
+        self.raw, self.model, self.reasoning_effort, self._sleep = raw, model, reasoning_effort, sleep
+        self._schema = _strict_schema()
+
+    def _create(self, system: str, user: str):
+        import groq
+
+        kw: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "max_completion_tokens": self.max_tokens,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "repair_proposal", "schema": self._schema, "strict": True}},
+        }
+        if self.model.startswith("openai/gpt-oss") and self.reasoning_effort:
+            kw["reasoning_effort"] = self.reasoning_effort
+        for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+            try:
+                return self.raw.chat.completions.create(**kw)
+            except groq.RateLimitError as e:
+                msg = str(getattr(e, "message", None) or e)
+                if re.search(r"per day|TPD|RPD", msg):
+                    raise LlmUnavailable(("daily quota: " + msg)[:200]) from e
+                if attempt == MAX_RATE_LIMIT_RETRIES:
+                    raise InvalidOutput("rate_limited") from e
+                try:
+                    wait = float(e.response.headers.get("retry-after", 2))
+                except (AttributeError, TypeError, ValueError):
+                    wait = 2.0
+                self._sleep(min(max(wait, 0.5), MAX_BACKOFF_SECONDS))
+            except Exception as e:
+                if (reason := _unavailable_reason(e)) is not None:
+                    raise LlmUnavailable(reason) from e
+                if isinstance(e, groq.BadRequestError):  # e.g. json_validate_failed: model produced bad JSON
+                    raise SchemaError(str(getattr(e, "message", None) or e)[:1500]) from e
+                raise
+
+    def propose(self, system: str, user: str) -> LlmProposal:
+        response = self._create(system, user)
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            raise SchemaError("reply truncated (max tokens reached)")
+        text = _extract_json(choice.message.content or "")
+        try:
+            parsed = LlmProposal.model_validate_json(text)
+        except ValidationError as e:
+            raise SchemaError(str(e)[:1500]) from e
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            parsed.meta["usage"] = {"input": getattr(usage, "prompt_tokens", None), "output": getattr(usage, "completion_tokens", None)}
+        return parsed
+
+
+def make_client(settings: Settings) -> LlmClient:
+    if settings.llm_provider == "anthropic":
+        import anthropic
+
+        raw = anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else anthropic.Anthropic()
+        return AnthropicClient(raw, settings.llm_model)
+    import groq
+
+    raw = groq.Groq(api_key=settings.groq_api_key) if settings.groq_api_key else groq.Groq()
+    return GroqClient(raw, settings.llm_model, settings.llm_reasoning_effort)
+
+
+def _as_llm_client(client: Any, settings: Settings) -> LlmClient:
+    """Accept an LlmClient, or a raw SDK client (tests) which is wrapped for the configured provider."""
+    if hasattr(client, "propose"):
+        return client
+    if settings.llm_provider == "anthropic":
+        return AnthropicClient(client, settings.llm_model)
+    return GroqClient(client, settings.llm_model, settings.llm_reasoning_effort)
 
 
 def call_llm(
@@ -120,44 +273,33 @@ def call_llm(
     settings: Settings,
     replay_dir: Path | None = None,
 ) -> LlmProposal:
-    """One call plus one retry with the validation error appended. Raises InvalidOutput."""
-    system = [{"type": "text", "text": load_system_prompt(), "cache_control": {"type": "ephemeral"}}]
+    """One call plus one retry with the validation error appended. Raises InvalidOutput / LlmUnavailable."""
+    llm = _as_llm_client(client, settings)
+    system = load_system_prompt()
     user = build_user_message(bundle, feedback, rule_hint)
     stem = f"{bundle.get('incident', 'unknown')}-{int(time.time() * 1000)}"
+    who = {"provider": llm.provider, "model": llm.model}
     last_error = ""
     for attempt in (1, 2):
         content = user if attempt == 1 else (
             user + "\n\n## Validation error\nYour previous reply did not match the schema: "
             + last_error + "\nReturn a corrected object."
         )
-        messages = [{"role": "user", "content": content}]
-        _write_replay(replay_dir, stem, f"prompt{attempt}", {"model": settings.llm_model, "system": system, "messages": messages})
+        _write_replay(replay_dir, stem, f"prompt{attempt}", {**who, "system": system, "messages": [{"role": "user", "content": content}]})
+        started = time.monotonic()
         try:
-            response = client.messages.parse(
-                model=settings.llm_model,
-                max_tokens=MAX_TOKENS,
-                system=system,
-                messages=messages,
-                output_format=LlmProposal,
-            )
-        except Exception as e:
-            if (unavailable := _unavailable(e)) is not None:
-                _write_replay(replay_dir, stem, f"reply{attempt}", {"error": unavailable.reason})
-                raise unavailable from e
-            if not isinstance(e, ValueError):
-                raise
-            # pydantic ValidationError / bad JSON from parse
-            last_error = str(e)[:1500]
-            _write_replay(replay_dir, stem, f"reply{attempt}", {"error": last_error})
+            parsed = llm.propose(system, content)
+        except LlmUnavailable as e:
+            _write_replay(replay_dir, stem, f"reply{attempt}", {**who, "error": e.reason})
+            raise
+        except InvalidOutput as e:
+            _write_replay(replay_dir, stem, f"reply{attempt}", {**who, "error": str(e)})
+            raise
+        except SchemaError as e:
+            last_error = str(e)
+            _write_replay(replay_dir, stem, f"reply{attempt}", {**who, "error": last_error})
             continue
-        if getattr(response, "stop_reason", None) == "refusal":
-            _write_replay(replay_dir, stem, f"reply{attempt}", {"stop_reason": "refusal"})
-            raise InvalidOutput("model refused")
-        parsed = getattr(response, "parsed_output", None)
-        if parsed is None:
-            last_error = "no parsed output (truncated or empty reply)"
-            _write_replay(replay_dir, stem, f"reply{attempt}", {"error": last_error})
-            continue
-        _write_replay(replay_dir, stem, f"reply{attempt}", parsed.model_dump(by_alias=True))
+        parsed.meta.update(who, latencyMs=round((time.monotonic() - started) * 1000))
+        _write_replay(replay_dir, stem, f"reply{attempt}", {**who, "latencyMs": parsed.meta["latencyMs"], "reply": parsed.model_dump(by_alias=True)})
         return parsed
     raise InvalidOutput(last_error or "invalid output")

@@ -195,7 +195,7 @@ def validation_error():
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(state_dir=tmp_path / "state", analyzer_mode="rules-first")
+    return Settings(state_dir=tmp_path / "state", analyzer_mode="rules-first", llm_provider="anthropic")
 
 
 @pytest.fixture
@@ -352,3 +352,93 @@ def test_raise_memory_limit_honours_llm_value_within_clamp():
     out = lambda lim: apply(DEPLOY, templates.render("raise_memory_limit", b, {"container": "api", "new_limit": lim}))
     assert "memory: 192Mi" in out("129Mi")  # floor 1.5x of 128Mi
     assert "memory: 384Mi" in out("384Mi")  # inside [1.5x, 4x]
+
+
+# ------------------------------------------------------------------ groq provider
+class FakeGroq:
+    """Mimics groq.Groq().chat.completions.create; script items are replies (str content) or exceptions."""
+
+    def __init__(self, *script):
+        self.script, self.calls = list(script), []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kw):
+        self.calls.append(kw)
+        item = self.script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        msg = SimpleNamespace(content=item)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7),
+        )
+
+
+def groq_settings(tmp_path):
+    return Settings(state_dir=tmp_path / "state", analyzer_mode="llm-first", llm_provider="groq")
+
+
+def groq_json(**over):
+    d = reply(**over).parsed_output.model_dump(by_alias=True)
+    return json.dumps(d)
+
+
+def test_settings_default_models():
+    assert Settings().llm_provider == "groq" and Settings().llm_model == "openai/gpt-oss-120b"
+    assert Settings(llm_provider="anthropic").llm_model == "claude-sonnet-5-5"
+    assert Settings.from_env({"REPAIR_LLM_PROVIDER": "groq", "REPAIR_LLM_MODEL": "qwen/qwen3.8-27b"}).llm_model == "qwen/qwen3.8-27b"
+
+
+def test_groq_client_parses_strips_think_and_records_meta(store, tmp_path):
+    st = groq_settings(tmp_path)
+    c = FakeGroq("<think>hmm</think>\n" + groq_json(), groq_json())
+    p = analyze(bundle(failure={"reason": "CrashLoopBackOff"}), store=store, client=c, settings=st)
+    assert (p.tier, p.cls) == (3, "CRASH_LOOP")
+    kw = c.calls[0]
+    assert kw["response_format"]["type"] == "json_schema" and kw["response_format"]["json_schema"]["strict"] is True
+    assert kw["reasoning_effort"] == "medium" and kw["messages"][0]["role"] == "system"
+    assert p.llm_meta["provider"] == "groq" and p.llm_meta["model"] == "openai/gpt-oss-120b"
+    assert p.llm_meta["usage"] == {"input": 11, "output": 7} and "latencyMs" in p.llm_meta
+    replay = json.loads(next((st.state_dir / "replay").glob("*reply1.json")).read_text())
+    assert replay["provider"] == "groq" and replay["reply"]["class"] == "CRASH_LOOP"
+
+
+def test_groq_invalid_json_retries_once_then_raises(store, tmp_path):
+    st = groq_settings(tmp_path)
+    c = FakeGroq("not json", groq_json())
+    p = analyze(bundle(failure={"reason": "CrashLoopBackOff"}), store=store, client=c, settings=st)
+    assert p.tier == 3 and "Validation error" in c.calls[1]["messages"][1]["content"]
+    with pytest.raises(InvalidOutput):
+        analyze(bundle(failure={"reason": "CrashLoopBackOff"}), store=store, client=FakeGroq("x", "y"), settings=st)
+
+
+def test_groq_error_mapping(tmp_path):
+    import groq
+    import httpx
+
+    from repair_operator.analyzer.llm import GroqClient, LlmUnavailable
+
+    req = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+
+    def err(cls, status, msg, headers=None):
+        return cls(msg, response=httpx.Response(status, request=req, headers=headers or {}), body=None)
+
+    st = groq_settings(tmp_path)
+    for exc in (err(groq.AuthenticationError, 401, "bad key"), err(groq.PermissionDeniedError, 403, "no")):
+        with pytest.raises(LlmUnavailable):
+            call_llm_groq(FakeGroq(exc), st)
+    with pytest.raises(LlmUnavailable, match="daily quota"):
+        call_llm_groq(FakeGroq(err(groq.RateLimitError, 429, "Rate limit reached ... tokens per day (TPD)")), st)
+    # 429 twice then success: sleeps honoring retry-after
+    slept = []
+    rl = err(groq.RateLimitError, 429, "slow down", {"retry-after": "3"})
+    client = GroqClient(FakeGroq(rl, rl, groq_json()), st.llm_model, sleep=slept.append)
+    assert client.propose("sys", "user").cls == "CRASH_LOOP" and slept == [3.0, 3.0]
+    with pytest.raises(InvalidOutput):  # third 429 -> counts as a failed attempt
+        GroqClient(FakeGroq(rl, rl, rl), st.llm_model, sleep=slept.append).propose("s", "u")
+
+
+def call_llm_groq(raw, st):
+    from repair_operator.analyzer.llm import call_llm
+
+    return call_llm(bundle(), [], None, client=raw, settings=st)

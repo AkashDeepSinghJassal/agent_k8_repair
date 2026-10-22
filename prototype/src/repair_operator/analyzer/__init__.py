@@ -110,6 +110,7 @@ def analyze(
         client=client or make_client(settings), settings=settings, replay_dir=replay_dir,
     )
     prop = _from_llm(out, bundle, file)
+    prop.llm_meta = dict(out.meta)
     if rule and rule.cls != prop.cls:
         prop.rule_disagreement = {"rule": rule.cls, "llm": prop.cls}
         prop.confidence = round(max(0.0, prop.confidence - DISAGREE_PENALTY), 4)
