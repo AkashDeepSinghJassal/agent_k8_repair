@@ -17,4 +17,4 @@ operator:
 	@echo "see #4"
 
 dashboard:
-	@echo "see #5"
+	uv run uvicorn repair_dashboard.app:app --port 8090

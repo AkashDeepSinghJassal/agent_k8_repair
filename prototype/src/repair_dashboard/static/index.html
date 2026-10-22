@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repair loop dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#incidents">Skip to repair incidents</a>
+<header class="top">
+  <div>
+    <h1>Self-repair loop</h1>
+    <p class="sub">Read-only view of the demo cluster</p>
+  </div>
+  <div class="status" role="status" aria-live="polite">
+    <span id="cluster-dot" class="dot dot-unknown" aria-hidden="true"></span>
+    <span id="cluster-text">Connecting...</span>
+    <span id="updated" class="muted"></span>
+    <button id="refresh" type="button" class="btn">Refresh now</button>
+  </div>
+</header>
+
+<main>
+  <section aria-labelledby="h-services">
+    <h2 id="h-services">Services</h2>
+    <div id="services" class="ns-groups"></div>
+  </section>
+
+  <div class="two-col">
+    <section aria-labelledby="h-gitops">
+      <h2 id="h-gitops">GitOps (Argo CD)</h2>
+      <div id="gitops"></div>
+    </section>
+    <section aria-labelledby="h-pipelines">
+      <h2 id="h-pipelines">Pipelines (Argo Workflows)</h2>
+      <div id="pipelines"></div>
+    </section>
+  </div>
+
+  <section id="incidents" aria-labelledby="h-incidents">
+    <h2 id="h-incidents">Repair incidents</h2>
+    <div id="incident-list"></div>
+  </section>
+
+  <section aria-labelledby="h-faults" class="faults">
+    <h2 id="h-faults">Fault injection</h2>
+    <!-- FAULT-INJECTION-PANEL: filled in by issue #12. Keep this container id stable. -->
+    <div id="fault-panel" class="placeholder">
+      <p>Fault injection controls will appear here (planned in issue #12).</p>
+      <p class="muted">Until then this dashboard only observes; nothing on this page changes the cluster.</p>
+    </div>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-head">
+    <h3 id="drawer-title">Incident</h3>
+    <button id="drawer-close" type="button" class="btn" aria-label="Close incident details">Close</button>
+  </div>
+  <div id="drawer-body"></div>
+</aside>
+
+<script src="app.js"></script>
+</body>
+</html>
