@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: demo
+  labels:
+    app: worker
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    repair.example.dev/source-path: deploy/demo/worker.yaml
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      containers:
+        - name: worker
+          image: python:3.12-alpine
+          command: ["python", "/app/worker.py"]
+          volumeMounts:
+            - name: code
+              mountPath: /app
+              readOnly: true
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 25m
+            limits:
+              memory: 64Mi
+              cpu: 250m
+      volumes:
+        - name: code
+          configMap:
+            name: worker-code
