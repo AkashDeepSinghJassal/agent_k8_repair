@@ -361,13 +361,19 @@ def validate(bundle: dict) -> None:
     _validator().validate(bundle)
 
 
-def store(bundle: dict, attempt: int, state_dir: Path | None = None) -> str:
-    """Validate, write ``<state_dir>/evidence/<incident>-<attempt>.json``, return ``sha256:<hex>``."""
+def uid_tag(incident: dict) -> str | None:
+    """First 8 characters of ``metadata.uid``: keeps a recreated incident from reading old bundles."""
+    uid = (incident.get("metadata") or {}).get("uid")
+    return str(uid).replace("-", "")[:8] or None if uid else None
+
+
+def store(bundle: dict, attempt: int, state_dir: Path | None = None, uid: str | None = None) -> str:
+    """Validate, write ``<state_dir>/evidence/<incident>[-<uid8>]-<attempt>.json``, return ``sha256:<hex>``."""
     validate(bundle)
     base = Path(state_dir if state_dir is not None else get_settings().state_dir).expanduser() / "evidence"
     base.mkdir(parents=True, exist_ok=True)
     data = json.dumps(bundle, indent=2, sort_keys=True).encode()
-    (base / f"{bundle['incident']}-{attempt}.json").write_bytes(data)
+    (base / f"{bundle['incident']}{'-' + uid if uid else ''}-{attempt}.json").write_bytes(data)
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
@@ -388,7 +394,7 @@ def collect_and_store(
     if attempt is None:
         attempt = ((incident.get("status") or {}).get("attempts") or 0) + 1
     bundle = collect(core_api, custom_api, github, incident, now=now)
-    ref = store(bundle, attempt, state_dir)
+    ref = store(bundle, attempt, state_dir, uid_tag(incident))
     return {"evidenceRef": ref, "signature": bundle["signature"]}
 
 

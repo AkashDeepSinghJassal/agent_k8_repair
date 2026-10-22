@@ -30,19 +30,20 @@ def _repo(repo: Any, settings: Settings) -> Any:
     return git_writer.repo_client(settings)
 
 
-def _bundle_files(name: str, settings: Settings) -> dict[int, Path]:
+def _bundle_files(name: str, settings: Settings, uid: str | None = None) -> dict[int, Path]:
     base = Path(settings.state_dir).expanduser() / "evidence"
+    prefix = f"{name}-{uid}" if uid else name
     found: dict[int, Path] = {}
-    for p in base.glob(f"{name}-*.json"):
-        suffix = p.stem[len(name) + 1 :]
+    for p in base.glob(f"{prefix}-*.json"):
+        suffix = p.stem[len(prefix) + 1 :]
         if suffix.isdigit():
             found[int(suffix)] = p
     return found
 
 
-def load_bundle(name: str, attempts: int, settings: Settings) -> dict | None:
-    """Evidence bundle ``<name>-<attempts>.json``; falls back to the newest bundle."""
-    found = _bundle_files(name, settings)
+def load_bundle(name: str, attempts: int, settings: Settings, uid: str | None = None) -> dict | None:
+    """Evidence bundle ``<name>[-<uid8>]-<attempts>.json``; falls back to the newest bundle of this incident."""
+    found = _bundle_files(name, settings, uid)
     if not found:
         return None
     return json.loads(found.get(attempts, found[max(found)]).read_text())
@@ -56,7 +57,7 @@ def refresh_evidence(
     Failures are logged and ignored: analysis then uses the newest older bundle.
     """
     name = body["metadata"]["name"]
-    if attempts <= 1 or attempts in _bundle_files(name, settings):
+    if attempts <= 1 or attempts in _bundle_files(name, settings, evidence.uid_tag(body)):
         return
     try:
         if collect_fn is None:
@@ -155,7 +156,7 @@ def analyze_step(
             _escalate(patch, last_reason or "max_attempts", now, gh, status, incident=body, attempts=attempts, reviewFeedback=feedback)
             _record(store, status, "escalated", settings)
             return
-        bundle = load_bundle(name, attempts, settings)
+        bundle = load_bundle(name, attempts, settings, evidence.uid_tag(body))
         if bundle is None:
             _escalate(patch, "evidence_missing", now, None, status, incident=body, attempts=attempts)
             return
@@ -230,7 +231,7 @@ def propose_step(
     status = body.get("status") or {}
     attempts = status.get("attempts") or 1
     proposal = Proposal.model_validate(status["proposal"])
-    bundle = load_bundle(name, attempts, settings) or {}
+    bundle = load_bundle(name, attempts, settings, evidence.uid_tag(body)) or {}
     gh = _repo(repo, settings)
     current = gh.get_contents(proposal.file, ref=gh.default_branch).decoded_content.decode("utf-8")
     new_text = guardrails.apply_edits(current, proposal.edits)
