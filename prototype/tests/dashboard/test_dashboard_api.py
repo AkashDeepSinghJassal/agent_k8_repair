@@ -61,9 +61,15 @@ def test_static_ui_served(make_client):
 
 
 def test_real_reader_without_cluster_is_unavailable(monkeypatch, tmp_path):
-    monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
-    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    from kubernetes import config
+
     from repair_dashboard.kube import KubeUnavailable
+
+    def boom(*a, **kw):
+        raise config.ConfigException("no config")
+
+    monkeypatch.setattr(config, "load_kube_config", boom)
+    monkeypatch.setattr(config, "load_incluster_config", boom)
 
     with pytest.raises(KubeUnavailable):
         KubeClientReader("kind-repair").argocd_apps()

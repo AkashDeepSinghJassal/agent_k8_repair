@@ -61,7 +61,8 @@ Environment variables (read through `repair_operator/config.py` → `Settings`, 
 | `REPAIR_DEMO_REPO` | `AkashDeepSinghJassal/repair-demo-app` | |
 | `REPAIR_DEMO_BRANCH` | `main` | |
 | `ANTHROPIC_API_KEY` | (from env) | |
-| `REPAIR_LLM_MODEL` | `claude-opus-5-5` | |
+| `REPAIR_LLM_MODEL` | `claude-sonnet-5-5` | No temperature/top_p/prefill/forced tool_choice |
+| `REPAIR_ANALYZER_MODE` | `llm-first` | `llm-first`: LLM always diagnoses (rule table is a hint, disagreement recorded); `rules-first`: tier 1 rules+template before the LLM |
 | `REPAIR_SHADOW_MODE` | `false` | L0: classify + log, no PR |
 | `REPAIR_DEBOUNCE_SECONDS` | `60` | |
 | `REPAIR_VERIFY_WINDOW_SECONDS` | `120` | Demo-friendly (plan says 600) |
@@ -120,8 +121,8 @@ Tiers:
 | Tier | Source | Classes |
 |---|---|---|
 | 0 | Promoted recipe matching `signature`, no LLM | any with a template |
-| 1 | Rule table + deterministic template | OOM_KILLED, IMAGE_PULL, CONFIG_ERROR |
-| 2 | LLM picks template + params | same three, when the rules are unsure |
+| 1 | Rule table + deterministic template (`rules-first` mode only) | OOM_KILLED, IMAGE_PULL, CONFIG_ERROR |
+| 2 | LLM picks template + params (always, in `llm-first`) | same three |
 | 3 | LLM `find/replace` edits | CRASH_LOOP, STAGE_FAILURE |
 | 4 | Escalate, no PR | UNSCHEDULABLE, `fixable_in_git=false`, low confidence |
 

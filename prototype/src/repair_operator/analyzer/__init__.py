@@ -1,10 +1,12 @@
 """Analyzer: ``analyze(bundle, feedback) -> Proposal`` (CONTRACTS section 7).
 
-Order: tier 0 promoted recipe -> tier 1 rules + template -> tier 2/3 LLM -> tier 4 escalate.
+Modes: ``llm-first`` (default) tier 0 recipe, then always the LLM (rule table is only a hint, disagreement is
+recorded); ``rules-first``: tier 0, tier 1 rules + template, then the LLM. Tier 4 escalates.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,9 @@ from .llm import InvalidOutput, LlmProposal, call_llm, make_client
 
 __all__ = ["InvalidOutput", "LlmProposal", "analyze"]
 
+log = logging.getLogger(__name__)
 LOW_CONFIDENCE = 0.5
+DISAGREE_PENALTY = 0.15
 OPEN_ENDED = frozenset({"CRASH_LOOP", "STAGE_FAILURE"})
 TEMPLATE_CLASSES = frozenset(rules.TEMPLATE_FOR_CLASS)
 
@@ -77,7 +81,8 @@ def analyze(
     rule = rules.classify(bundle)
     if rule and rule.cls == "UNSCHEDULABLE":
         return _escalate("UNSCHEDULABLE", rule.hint, "rules", rationale="Scheduling failures are cluster capacity issues, not git changes.")
-    if rule and rule.template and not feedback:
+    rules_first = settings.analyzer_mode == "rules-first"
+    if rules_first and rule and rule.template and not feedback:
         params = {}
         container = (bundle.get("source") or {}).get("container")
         if container:
@@ -101,10 +106,15 @@ def analyze(
     # Tier 2/3: LLM.
     replay_dir = Path(settings.state_dir).expanduser() / "replay"
     out = call_llm(
-        bundle, feedback, f"{rule.cls} (confidence {rule.confidence}); patch hint: {rule.hint}" if rule else None,
+        bundle, feedback, f"{rule.cls} (confidence {rule.confidence}); patch hint: {rule.hint}. This is only a hint; decide from the evidence." if rule else None,
         client=client or make_client(settings), settings=settings, replay_dir=replay_dir,
     )
-    return _from_llm(out, bundle, file)
+    prop = _from_llm(out, bundle, file)
+    if rule and rule.cls != prop.cls:
+        prop.rule_disagreement = {"rule": rule.cls, "llm": prop.cls}
+        prop.confidence = round(max(0.0, prop.confidence - DISAGREE_PENALTY), 4)
+        log.warning("%s: rule table says %s but LLM says %s", bundle.get("incident"), rule.cls, prop.cls)
+    return prop
 
 
 def _from_llm(out: LlmProposal, bundle: dict, file: str | None) -> Proposal:

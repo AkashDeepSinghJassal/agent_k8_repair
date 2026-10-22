@@ -20,7 +20,8 @@ class Settings(BaseModel):
     demo_repo: str = "AkashDeepSinghJassal/repair-demo-app"
     demo_branch: str = "main"
     anthropic_api_key: str | None = Field(default=None, repr=False)
-    llm_model: str = "claude-opus-5-5"
+    llm_model: str = "claude-sonnet-5-5"
+    analyzer_mode: str = "llm-first"  # "llm-first" | "rules-first"
     shadow_mode: bool = False
     debounce_seconds: int = 60
     verify_window_seconds: int = 120
@@ -39,6 +40,7 @@ class Settings(BaseModel):
             "demo_branch": "REPAIR_DEMO_BRANCH",
             "anthropic_api_key": "ANTHROPIC_API_KEY",
             "llm_model": "REPAIR_LLM_MODEL",
+            "analyzer_mode": "REPAIR_ANALYZER_MODE",
             "debounce_seconds": "REPAIR_DEBOUNCE_SECONDS",
             "verify_window_seconds": "REPAIR_VERIFY_WINDOW_SECONDS",
             "max_attempts": "REPAIR_MAX_ATTEMPTS",
