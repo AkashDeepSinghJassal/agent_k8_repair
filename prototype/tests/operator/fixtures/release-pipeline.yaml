@@ -1,0 +1,74 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: release-pipeline
+  namespace: demo
+  labels:
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    repair.example.dev/source-path: workflows/release-pipeline.yaml
+spec:
+  entrypoint: release
+  arguments:
+    parameters:
+      - name: mode
+        value: strict
+  templates:
+    - name: release
+      steps:
+        - - name: check-config
+            template: check-config
+            arguments:
+              parameters:
+                - name: mode
+                  value: "{{workflow.parameters.mode}}"
+        - - name: smoke-test
+            template: smoke-test
+        - - name: report
+            template: report
+            arguments:
+              parameters:
+                - name: mode
+                  value: "{{workflow.parameters.mode}}"
+    - name: check-config
+      inputs:
+        parameters:
+          - name: mode
+      container:
+        image: alpine:3.20
+        command: ["sh", "-c"]
+        env:
+          - name: EXPECTED_FLAG
+            value: "{{inputs.parameters.mode}}"
+        args:
+          - |
+            test -n "$EXPECTED_FLAG" || { echo "EXPECTED_FLAG is empty" >&2; exit 2; }
+            case "$EXPECTED_FLAG" in
+              strict|lenient) echo "config ok: mode=$EXPECTED_FLAG" ;;
+              *) echo "unknown mode: $EXPECTED_FLAG" >&2; exit 3 ;;
+            esac
+        resources:
+          requests:
+            memory: 16Mi
+            cpu: 10m
+    - name: smoke-test
+      container:
+        image: curlimages/curl:8.11.1
+        command: ["curl"]
+        args: ["-fsS", "--max-time", "10", "http://api.demo.svc:8000/healthz"]
+        resources:
+          requests:
+            memory: 16Mi
+            cpu: 10m
+    - name: report
+      inputs:
+        parameters:
+          - name: mode
+      container:
+        image: alpine:3.20
+        command: ["sh", "-c"]
+        args: ["echo \"release report: mode={{inputs.parameters.mode}} status=passed\""]
+        resources:
+          requests:
+            memory: 16Mi
+            cpu: 10m
