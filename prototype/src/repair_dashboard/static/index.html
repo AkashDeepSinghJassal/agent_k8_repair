@@ -11,7 +11,7 @@
 <header class="top">
   <div>
     <h1>Self-repair loop</h1>
-    <p class="sub">Read-only view of the demo cluster</p>
+    <p class="sub">Demo cluster view and controls</p>
   </div>
   <div class="status" role="status" aria-live="polite">
     <span id="cluster-dot" class="dot dot-unknown" aria-hidden="true"></span>
@@ -34,6 +34,7 @@
     </section>
     <section aria-labelledby="h-pipelines">
       <h2 id="h-pipelines">Pipelines (Argo Workflows)</h2>
+      <div class="actions"><button id="rerun" type="button" class="btn">Re-run pipeline</button><span id="rerun-msg" class="muted" role="status"></span></div>
       <div id="pipelines"></div>
     </section>
   </div>
@@ -45,11 +46,13 @@
 
   <section aria-labelledby="h-faults" class="faults">
     <h2 id="h-faults">Fault injection</h2>
-    <!-- FAULT-INJECTION-PANEL: filled in by issue #12. Keep this container id stable. -->
-    <div id="fault-panel" class="placeholder">
-      <p>Fault injection controls will appear here (planned in issue #12).</p>
-      <p class="muted">Until then this dashboard only observes; nothing on this page changes the cluster.</p>
-    </div>
+    <div id="gh-banner" class="error" role="alert" hidden></div>
+    <div id="fault-panel" class="cards fault-cards" aria-busy="true"><p class="muted">Loading faults...</p></div>
+  </section>
+
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">Activity log</h2>
+    <ol id="activity" class="activity" aria-label="Activity log"><li class="muted">No actions yet.</li></ol>
   </section>
 </main>
 
@@ -60,6 +63,18 @@
   </div>
   <div id="drawer-body"></div>
 </aside>
+
+<dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+  <form method="dialog">
+    <h3 id="confirm-title">Confirm</h3>
+    <div id="confirm-body"></div>
+    <div class="dialog-actions">
+      <button id="confirm-cancel" type="button" class="btn">Cancel</button>
+      <button id="confirm-ok" type="button" class="btn btn-danger">Confirm</button>
+    </div>
+  </form>
+</dialog>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>
