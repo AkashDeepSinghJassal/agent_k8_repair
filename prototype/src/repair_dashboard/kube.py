@@ -25,6 +25,8 @@ class KubeReader(Protocol):
     def workflows(self, namespaces: tuple[str, ...] | list[str]) -> list[dict]: ...
     def incidents(self) -> list[dict]: ...
     def incident(self, ns: str, name: str) -> dict | None: ...
+    def set_approved_by(self, ns: str, name: str, who: str) -> None: ...
+    def submit_workflow(self, ns: str, template: str) -> str: ...
 
 
 # ---------------------------------------------------------------- parsing
@@ -262,6 +264,25 @@ class KubeClientReader:
                 return parse_incident_detail(i)
         return None
 
+    def set_approved_by(self, ns, name, who):
+        api = self._init().CustomObjectsApi()
+        self._call(
+            api.patch_namespaced_custom_object_status,
+            "repair.example.dev", "v1alpha1", ns, "repairincidents", name,
+            {"status": {"approvedBy": who}},
+        )
+
+    def submit_workflow(self, ns, template):
+        api = self._init().CustomObjectsApi()
+        body = {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "Workflow",
+            "metadata": {"generateName": f"{template}-", "namespace": ns, "labels": {"repair.example.dev/rerun": "dashboard"}},
+            "spec": {"workflowTemplateRef": {"name": template}},
+        }
+        res = self._call(api.create_namespaced_custom_object, "argoproj.io", "v1alpha1", ns, "workflows", body)
+        return res["metadata"]["name"]
+
 
 class FakeKubeReader:
     """In-memory reader for tests. Set ``error`` to simulate an unreachable cluster."""
@@ -272,6 +293,8 @@ class FakeKubeReader:
         self._workflows = workflows or []
         self._incidents = incidents or []
         self.error = error
+        self.approved: list[tuple[str, str, str]] = []
+        self.submitted: list[tuple[str, str]] = []
 
     def _check(self):
         if self.error:
@@ -300,3 +323,12 @@ class FakeKubeReader:
             if i["namespace"] == ns and i["name"] == name:
                 return i
         return None
+
+    def set_approved_by(self, ns, name, who):
+        self._check()
+        self.approved.append((ns, name, who))
+
+    def submit_workflow(self, ns, template):
+        self._check()
+        self.submitted.append((ns, template))
+        return f"{template}-fake{len(self.submitted)}"

@@ -36,6 +36,65 @@ async function getJSON(url) {
   return body;
 }
 
+async function postJSON(url, payload) {
+  const r = await fetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}),
+  });
+  let body = null;
+  try { body = await r.json(); } catch (e) { /* non-JSON error body */ }
+  if (!r.ok) {
+    const d = body && (body.detail || body.error);
+    const err = new Error(typeof d === "string" ? d : d ? JSON.stringify(d) : `HTTP ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return body;
+}
+
+// ------------------------------------------------------------ toasts, log, confirm
+function logActivity(msg, isErr) {
+  const list = $("activity");
+  if (list.firstChild && list.firstChild.classList.contains("muted")) list.replaceChildren();
+  list.prepend(h("li", { class: isErr ? "err" : "" }, `${new Date().toLocaleTimeString()}  ${msg}`));
+  while (list.children.length > 50) list.lastChild.remove();
+}
+function toast(msg, isErr) {
+  const t = h("div", { class: "toast" + (isErr ? " err" : "") }, msg);
+  $("toasts").append(t);
+  setTimeout(() => t.remove(), isErr ? 9000 : 5000);
+  logActivity(msg, isErr);
+}
+function confirmDialog(title, bodyNodes, okLabel) {
+  const dlg = $("confirm");
+  $("confirm-title").textContent = title;
+  $("confirm-body").replaceChildren(...bodyNodes);
+  $("confirm-ok").textContent = okLabel || "Confirm";
+  return new Promise((resolve) => {
+    const done = (v) => { dlg.close(); $("confirm-ok").onclick = $("confirm-cancel").onclick = dlg.oncancel = null; resolve(v); };
+    $("confirm-ok").onclick = () => done(true);
+    $("confirm-cancel").onclick = () => done(false);
+    dlg.oncancel = (e) => { e.preventDefault(); done(false); };
+    dlg.showModal();
+    $("confirm-cancel").focus();
+  });
+}
+// Run an async action with the button disabled; show errors inline (errBox) and as a toast.
+async function runAction(btn, errBox, label, fn) {
+  btn.disabled = true;
+  if (errBox) errBox.textContent = "";
+  try {
+    const res = await fn();
+    toast(`${label}: done`);
+    return res;
+  } catch (e) {
+    if (errBox) errBox.textContent = `${label} failed: ${e.message}`;
+    toast(`${label} failed: ${e.message}`, true);
+    return null;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 const ago = (iso) => {
   if (!iso) return "-";
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
@@ -122,6 +181,61 @@ function renderPipelines(wfs) {
       h("td", {}, when(w.startedAt)), h("td", {}, w.failedMessage || "-")))));
 }
 
+// ------------------------------------------------------------ faults
+const faultErrors = {};
+const faultBusy = new Set();
+
+function faultCard(f) {
+  const err = h("p", { class: "inline-error", role: "alert", id: `fault-err-${f.id}` }, faultErrors[f.id] || "");
+  const mk = (label, verb) => {
+    const b = h("button", { type: "button", class: "btn" + (verb === "inject" ? " btn-danger" : ""), "aria-describedby": `fault-err-${f.id}` }, label);
+    b.disabled = faultBusy.has(f.id) || (verb === "revert" && !f.injected && f.kind !== "cluster");
+    b.addEventListener("click", async () => {
+      const ok = await confirmDialog(`${label} ${f.id}?`, [
+        h("p", {}, h("strong", {}, f.title)), h("p", {}, f.description),
+        h("p", {}, verb === "inject" ? "This changes the demo repo or cluster and will trigger the repair loop." : "This restores the healthy configuration."),
+      ], label);
+      if (!ok) return;
+      faultBusy.add(f.id); faultErrors[f.id] = ""; b.disabled = true;
+      const res = await runAction(b, err, `${label} ${f.id}`, () => postJSON(`/api/faults/${f.id}/${verb}`));
+      faultBusy.delete(f.id);
+      if (res === null) faultErrors[f.id] = err.textContent;
+      else if (res.status === "already-injected") toast(`${f.id} was already injected`);
+      refreshFaults();
+    });
+    return b;
+  };
+  return h("article", { class: "card" + (f.injected ? " injected" : ""), "aria-label": `Fault ${f.id}: ${f.title}` },
+    h("div", { class: "card-head" }, h("span", { class: "card-title" }, `${f.id} ${f.title}`),
+      badge(f.injected ? "injected" : "clean", f.injected ? "red" : "green")),
+    h("p", {}, f.description),
+    h("dl", { class: "kv" },
+      h("dt", {}, "Kind"), h("dd", {}, `${f.kind} in ${f.namespace}`),
+      h("dt", {}, "Expected class"), h("dd", {}, f.expected_class),
+      h("dt", {}, "Expected outcome"), h("dd", {}, f.expected_outcome),
+      h("dt", {}, "Correct fix"), h("dd", {}, f.correct_fix),
+      h("dt", {}, "Incident"), h("dd", {}, f.incident || "-")),
+    h("div", { class: "card-actions" }, mk("Inject", "inject"), mk("Revert", "revert")),
+    err);
+}
+
+async function refreshFaults() {
+  const root = $("fault-panel");
+  try {
+    const list = await getJSON("/api/faults");
+    root.replaceChildren(...list.map(faultCard));
+  } catch (e) {
+    root.replaceChildren(errorBox("faults", e));
+  }
+  root.setAttribute("aria-busy", "false");
+  try {
+    const st = await getJSON("/api/actions/status");
+    const banner = $("gh-banner");
+    banner.hidden = st.github;
+    banner.textContent = st.github ? "" : st.message;
+  } catch (e) { /* ignore */ }
+}
+
 // ------------------------------------------------------------ incidents
 function stepBar(inc) {
   const off = TERMINAL_OFF_PATH[inc.phase];
@@ -206,7 +320,61 @@ function drawerContent(i) {
   }
   if (i.reviewFeedback && i.reviewFeedback.length)
     out.push(h("h4", {}, "Review feedback"), h("ul", {}, i.reviewFeedback.map((f) => h("li", {}, f))));
+  if (i.pullRequest) out.push(...prActions(i));
   return out;
+}
+
+function patchNode(patch) {
+  const pre = h("pre", { class: "diff patch", tabindex: "0" });
+  for (const line of (patch || "(no textual diff)").split("\n")) {
+    const cls = line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "";
+    pre.append(h("span", { class: cls }, line + "\n"));
+  }
+  return pre;
+}
+function diffNodes(data) {
+  return data.files.flatMap((f) => [
+    h("p", { class: "mono" }, `${f.filename} (${f.status}, +${f.additions} -${f.deletions})`), patchNode(f.patch)]);
+}
+
+function prActions(i) {
+  const base = `/api/incidents/${encodeURIComponent(i.namespace)}/${encodeURIComponent(i.name)}`;
+  const err = h("p", { class: "inline-error", role: "alert" });
+  const diffBox = h("div", { "aria-live": "polite" });
+  const viewBtn = h("button", { type: "button", class: "btn" }, "View diff");
+  const approveBtn = h("button", { type: "button", class: "btn btn-primary" }, "Approve & merge");
+  const reviewable = i.phase === "AwaitingReview";
+  approveBtn.disabled = !reviewable;
+  if (!reviewable) approveBtn.title = `Only available in phase AwaitingReview (now ${i.phase})`;
+  const loadDiff = async () => { const d = await getJSON(`${base}/diff`); diffBox.replaceChildren(...diffNodes(d)); return d; };
+  viewBtn.addEventListener("click", () => runAction(viewBtn, err, "Load diff", loadDiff));
+  approveBtn.addEventListener("click", async () => {
+    approveBtn.disabled = true; err.textContent = "";
+    let data;
+    try { data = await loadDiff(); } catch (e) { err.textContent = `Load diff failed: ${e.message}`; approveBtn.disabled = !reviewable; return; }
+    const ok = await confirmDialog("Approve and squash-merge?", [
+      h("p", {}, `Merge ${i.pullRequest} into the demo repo. Review the diff first.`), ...diffNodes(data)], "Approve & merge");
+    if (!ok) { approveBtn.disabled = !reviewable; return; }
+    const res = await runAction(approveBtn, err, "Approve & merge", () => postJSON(`${base}/approve`, { confirm: true }));
+    if (res) {
+      if (res.warning) toast(res.warning, true);
+      approveBtn.disabled = true;
+      refresh();
+    } else approveBtn.disabled = !reviewable;
+  });
+  const text = h("textarea", { rows: 3, id: "rc-text", placeholder: "What should the next attempt change?", "aria-label": "Requested changes" });
+  const rcBtn = h("button", { type: "button", class: "btn" }, "Request changes");
+  rcBtn.addEventListener("click", async () => {
+    if (!text.value.trim()) { err.textContent = "Describe the changes you want first."; text.focus(); return; }
+    const res = await runAction(rcBtn, err, "Request changes", () => postJSON(`${base}/request-changes`, { text: text.value }));
+    if (res) text.value = "";
+  });
+  return [
+    h("h4", {}, "Review"),
+    h("div", { class: "drawer-actions" },
+      h("div", { class: "row" }, viewBtn, approveBtn), diffBox,
+      h("label", { for: "rc-text" }, "Request changes (posts /repair retry on the PR)"), text, h("div", { class: "row" }, rcBtn), err),
+  ];
 }
 
 // ------------------------------------------------------------ refresh loop
@@ -240,7 +408,15 @@ async function refresh() {
 }
 
 $("refresh").addEventListener("click", refresh);
+$("rerun").addEventListener("click", async () => {
+  const ok = await confirmDialog("Re-run pipeline?", [h("p", {}, "Submit a new release-pipeline run in namespace demo.")], "Re-run");
+  if (!ok) return;
+  const msg = $("rerun-msg");
+  const res = await runAction($("rerun"), msg, "Re-run pipeline", () => postJSON("/api/pipelines/rerun"));
+  if (res) { msg.textContent = `Submitted ${res.name}`; refresh(); }
+});
 $("drawer-close").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("drawer").hidden) closeDrawer(); });
 refresh();
-setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+refreshFaults();
+setInterval(() => { if (!document.hidden) { refresh(); refreshFaults(); } }, 5000);
