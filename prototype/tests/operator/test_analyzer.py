@@ -195,7 +195,7 @@ def validation_error():
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(state_dir=tmp_path / "state")
+    return Settings(state_dir=tmp_path / "state", analyzer_mode="rules-first")
 
 
 @pytest.fixture

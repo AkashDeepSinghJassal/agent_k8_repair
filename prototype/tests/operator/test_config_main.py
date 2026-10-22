@@ -9,7 +9,7 @@ from repair_operator.models import Edit, Phase, Proposal
 def test_settings_defaults_and_env():
     s = Settings.from_env({})
     assert s.debounce_seconds == 60 and s.max_attempts == 3 and s.shadow_mode is False
-    assert s.llm_model == "claude-opus-5-5" and s.state_dir == Path("~/.repair-loop").expanduser()
+    assert s.llm_model == "claude-sonnet-5-5" and s.state_dir == Path("~/.repair-loop").expanduser()
     s = Settings.from_env(
         {"REPAIR_SHADOW_MODE": "true", "REPAIR_DEBOUNCE_SECONDS": "5", "REPAIR_GITHUB_TOKEN": "secret"}
     )
@@ -51,4 +51,4 @@ def test_debounce_and_collect_step():
 def test_phase_hooks():
     p: dict = {}
     main.analyze_hook({"status": {"attempts": 1}}, p)
-    assert p["status"]["phase"] == "Analyzing" and p["status"]["attempts"] == 2
+    assert p["status"]["phase"] == "Analyzing" and p["status"]["attempts"] == 1

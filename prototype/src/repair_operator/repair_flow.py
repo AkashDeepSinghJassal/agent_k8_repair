@@ -71,7 +71,12 @@ def refresh_evidence(
 
 
 def _classification(p: Proposal) -> dict:
-    return {"class": p.cls, "confidence": p.confidence, "source": p.source}
+    d = {"class": p.cls, "confidence": p.confidence, "source": p.source}
+    if p.rule_disagreement:
+        d.update(ruleHint=p.rule_disagreement.get("rule"), disagrees=True)
+    elif p.rule_disagreement is None and p.source == "llm":
+        d["disagrees"] = False
+    return d
 
 
 def _proposal_status(p: Proposal, rejected_by: str | None = None) -> dict:

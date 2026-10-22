@@ -50,6 +50,9 @@ kubectl -n argo rollout status deployment/argo-workflows-server --timeout=5m
 log "Argo CD Applications"
 kubectl apply -f "$HERE/apps.yaml"
 
+log "Workflow executor RBAC"
+kubectl apply -f "$HERE/workflow-rbac.yaml"
+
 log "WorkflowTemplate from repair-demo-app"
 if kubectl apply -f "$WF_TEMPLATE_URL"; then
   echo "applied $WF_TEMPLATE_URL"

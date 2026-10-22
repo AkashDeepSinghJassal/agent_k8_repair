@@ -19,6 +19,8 @@ faults:
     breaking_edits:
       - find: "memory: 128Mi"
         replace: "memory: 32Mi"
+      - find: "memory: 96Mi"
+        replace: "memory: 24Mi"
     expected_class: OOM_KILLED
     expected_outcome: Healed
     correct_fix: "api limits.memory 32Mi -> 128Mi"
@@ -148,6 +150,8 @@ faults:
     breaking_edits:
       - find: "memory: 128Mi"
         replace: "memory: 32Mi"
+      - find: "memory: 96Mi"
+        replace: "memory: 24Mi"
     expected_class: OOM_KILLED
     expected_outcome: Healed
     correct_fix: "api-b limits.memory 32Mi -> 128Mi"

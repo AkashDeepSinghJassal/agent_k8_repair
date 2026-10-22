@@ -44,5 +44,6 @@ class Proposal(BaseModel):
     rationale: str = ""
     verify: str = ""
     needs_remeasure: bool = False
+    rule_disagreement: dict | None = None
     tier: int
     source: Literal["rules", "llm", "recipe"]

@@ -56,7 +56,7 @@ def collect_step(
 def analyze_hook(body: dict, patch: dict) -> None:
     """Collected -> Analyzing, then the analyzer runs."""
     incidents.set_phase(
-        patch, Phase.ANALYZING, incident=body, attempts=(body.get("status") or {}).get("attempts", 0) + 1
+        patch, Phase.ANALYZING, incident=body, attempts=(body.get("status") or {}).get("attempts") or 1
     )
 
 
