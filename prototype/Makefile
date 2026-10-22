@@ -17,4 +17,4 @@ operator:
 	uv run kopf run -m repair_operator.main --all-namespaces --verbose
 
 dashboard:
-	@echo "see #5"
+	uv run uvicorn repair_dashboard.app:app --port 8090
