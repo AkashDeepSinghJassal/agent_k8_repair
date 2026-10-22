@@ -84,6 +84,13 @@
         "file": {"type": "string", "description": "at most 400 lines"}
       }
     },
+    "available": {
+      "type": "object",
+      "properties": {
+        "configmaps": {"type": "array", "maxItems": 100, "items": {"type": "string"}},
+        "secrets": {"type": "array", "maxItems": 100, "items": {"type": "string"}}
+      }
+    },
     "history": {"type": "array"}
   }
 }

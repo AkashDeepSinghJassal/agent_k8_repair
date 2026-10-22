@@ -58,6 +58,16 @@ class FakeCore:
     def list_namespaced_event(self, ns, field_selector=None):
         return {"items": self.events}
 
+    def list_namespaced_config_map(self, ns):
+        if getattr(self, "list_fails", False):
+            raise ApiErr(403)
+        return {"items": [{"metadata": {"name": "api-config"}, "data": {"k": "v"}}]}
+
+    def list_namespaced_secret(self, ns):
+        if getattr(self, "list_fails", False):
+            raise ApiErr(403)
+        return {"items": [{"metadata": {"name": "db-creds"}, "data": {"pw": "c2VjcmV0"}}]}
+
     def read_namespaced_pod_log(self, name, ns, **kw):
         self.log_calls.append(kw)
         if kw.get("previous"):
@@ -238,6 +248,28 @@ def test_workflow_git_path_falls_back_to_template_file():
     wf["spec"] = {}
     b = evidence.collect(FakeCore(), FakeCustom(wf), FakeRepo(), wf_incident(), now=NOW)
     assert b["git"]["path"] == "workflows/build.yaml"
+
+
+def test_available_names_only():
+    b = evidence.collect(FakeCore(pod()), None, None, pod_incident(), now=NOW)
+    evidence.validate(b)
+    assert b["available"] == {"configmaps": ["api-config"], "secrets": ["db-creds"]}
+    assert "c2VjcmV0" not in json.dumps(b)
+
+
+def test_available_empty_on_error():
+    core = FakeCore(pod())
+    core.list_fails = True
+    b = evidence.collect(core, None, None, pod_incident(), now=NOW)
+    evidence.validate(b)
+    assert b["available"] == {"configmaps": [], "secrets": []}
+
+
+def test_available_schema_cap():
+    b = evidence.collect(FakeCore(pod()), None, None, pod_incident(), now=NOW)
+    b["available"]["secrets"] = [f"s{i}" for i in range(101)]
+    with pytest.raises(jsonschema.ValidationError):
+        evidence.validate(b)
 
 
 def test_schema_rejects_bad_bundle():

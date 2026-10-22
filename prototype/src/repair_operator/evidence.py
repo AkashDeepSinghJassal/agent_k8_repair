@@ -31,6 +31,7 @@ MAX_EVENTS = 20
 MAX_LOG_LINES = 200
 MAX_FILE_LINES = 400
 MAX_ERROR_LINES = 20
+MAX_AVAILABLE = 100
 ERROR_RE = re.compile(r"(?i)(error|fail|fatal|exception|panic|not found|denied|refused|exit)")
 
 # --- redaction -------------------------------------------------------------
@@ -252,6 +253,20 @@ def error_lines(*streams: list[str]) -> list[str]:
     return list(seen)[-MAX_ERROR_LINES:]
 
 
+def _available(core_api: Any, ns: str) -> dict[str, list[str]]:
+    """Names (never data) of ConfigMaps and Secrets in the namespace; empty lists on error."""
+    out: dict[str, list[str]] = {"configmaps": [], "secrets": []}
+    for key, method in (("configmaps", "list_namespaced_config_map"), ("secrets", "list_namespaced_secret")):
+        try:
+            resp = getattr(core_api, method)(ns)
+            raw = resp.get("items") if isinstance(resp, dict) else getattr(resp, "items", None)
+            names = [(_plain(i).get("metadata") or {}).get("name") for i in raw or []]
+            out[key] = sorted(n for n in names if n)[:MAX_AVAILABLE]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("cannot list %s in %s: %s", key, ns, exc)
+    return out
+
+
 def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now: datetime | None = None) -> dict:
     """Build the redacted evidence bundle for an incident (a RepairIncident dict)."""
     ns, name = _ns_name(incident)
@@ -315,6 +330,7 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
         "logs": logs,
         "workflow": workflow,
         "git": _git_section(github, path, branch),
+        "available": _available(core_api, ns),
         "history": [],
     }
 
