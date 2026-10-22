@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import threading
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -108,19 +110,39 @@ class GitHubPRs:
 
 
 class FaultState:
-    """In-memory record of faults injected through this dashboard process."""
+    """Record of faults injected through the dashboard; persisted as JSON when ``path`` is given."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: Path | str | None = None) -> None:
         self.lock = threading.Lock()
+        self.path = Path(path).expanduser() if path else None
         self.injected: dict[str, str] = {}
+        if self.path:
+            try:
+                data = json.loads(self.path.read_text())
+                self.injected = {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+            except (OSError, ValueError):
+                pass
+
+    def _save(self) -> None:
+        if not self.path:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.injected, indent=2))
+            tmp.replace(self.path)
+        except OSError:
+            pass  # best effort: the live cluster/git state is the source of truth
 
     def mark(self, fault_id: str) -> str:
         ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.injected[fault_id] = ts
+        self._save()
         return ts
 
     def clear(self, fault_id: str) -> None:
         self.injected.pop(fault_id, None)
+        self._save()
 
 
 class FaultBackend:

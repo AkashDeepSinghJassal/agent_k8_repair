@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from repair_faults import injector as faults
 
 from . import actions
-from .actions import FaultBackend, GitHubPRs, GitHubUnavailable, PRClient
+from .actions import FaultBackend, FaultState, GitHubPRs, GitHubUnavailable, PRClient
 from .kube import DEFAULT_NAMESPACES, WORKFLOW_NAMESPACES, KubeClientReader, KubeReader, KubeUnavailable
 
 STATIC = Path(__file__).parent / "static"
@@ -52,7 +52,8 @@ def get_prs() -> PRClient:
 
 @lru_cache
 def _backend() -> FaultBackend:
-    return FaultBackend()
+    state_dir = Path(os.environ.get("REPAIR_STATE_DIR") or "~/.repair-loop").expanduser()
+    return FaultBackend(state=FaultState(state_dir / "dashboard-faults.json"))
 
 
 def get_backend() -> FaultBackend:
