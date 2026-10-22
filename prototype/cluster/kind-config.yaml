@@ -1,0 +1,11 @@
+# kind cluster "repair" (CONTRACTS §3): one node, demo frontend NodePort 30080 -> localhost:8080.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: repair
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        listenAddress: "127.0.0.1"
+        protocol: TCP

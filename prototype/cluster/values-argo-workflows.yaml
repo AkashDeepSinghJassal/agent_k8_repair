@@ -1,0 +1,25 @@
+# Argo Workflows (chart argo/argo-workflows 2.0.14, app v4.1.6). Minimal install for a laptop.
+# Argo Workflows UI: kubectl -n argo port-forward svc/argo-workflows-server 2746:2746
+
+controller:
+  replicas: 1
+  # Namespaces the workflow controller manages; the chart creates RBAC in each,
+  # so bootstrap.sh creates demo and demo-b before installing this chart.
+  workflowNamespaces:
+    - demo
+    - demo-b
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+server:
+  replicas: 1
+  # Local use: no SSO, no client tokens. Plain HTTP so the port-forward works.
+  authModes:
+    - server
+  secure: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
