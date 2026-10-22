@@ -213,8 +213,12 @@ def scheduling_event(namespace, body, **_):
     if obj.get("kind") == "Pod":
         try:
             pod = _api("core").read_namespaced_pod(obj["name"], namespace).to_dict()
+            if (pod.get("spec") or {}).get("node_name"):
+                return  # stale event: the pod has been scheduled since
             pod = {"metadata": _snake_meta(pod["metadata"]), "spec": pod.get("spec") or {}}
         except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "status", None) == 404:
+                return  # stale event: the pod is gone
             log.warning("cannot read pod %s: %s", obj.get("name"), exc)
     spec = event_incident_spec(namespace, dict(body), pod, _api("apps"))
     if spec:
