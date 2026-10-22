@@ -267,6 +267,20 @@ def _available(core_api: Any, ns: str) -> dict[str, list[str]]:
     return out
 
 
+def _owner_source_path(custom_api: Any, ns: str, owner: str | None) -> str | None:
+    """The source-path annotation lives on the Deployment, not on its pods."""
+    kind, _, name = (owner or "").partition("/")
+    plural = {"Deployment": "deployments", "StatefulSet": "statefulsets", "DaemonSet": "daemonsets"}.get(kind)
+    if not (plural and name and custom_api):
+        return None
+    try:
+        obj = _plain(custom_api.get_namespaced_custom_object("apps", "v1", ns, plural, name))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cannot read %s %s/%s: %s", kind, ns, name, exc)
+        return None
+    return ((obj.get("metadata") or {}).get("annotations") or {}).get(SOURCE_PATH_ANNOTATION)
+
+
 def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now: datetime | None = None) -> dict:
     """Build the redacted evidence bundle for an incident (a RepairIncident dict)."""
     ns, name = _ns_name(incident)
@@ -303,6 +317,8 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
             failure["message"] = redact(source["message"])
         spec = _spec_section(pod.get("spec") or {}, container)
         path = ((pod.get("metadata") or {}).get("annotations") or {}).get(SOURCE_PATH_ANNOTATION)
+        if not path:
+            path = _owner_source_path(custom_api, ns, source.get("owner"))
         events = _events(core_api, ns, pod_name)
         if container:
             logs["current"] = _redact_lines(_read_logs(core_api, ns, pod_name, container))
