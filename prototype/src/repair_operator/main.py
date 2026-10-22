@@ -15,6 +15,7 @@ from . import (
     evidence,
     incidents,
     retrigger,
+    verify_handlers,  # noqa: F401
 )
 from .config import get_settings
 from .incidents import GROUP, PLURAL, VERSION
@@ -60,7 +61,7 @@ def retrigger_hook(body: dict, patch: dict) -> None:
     """Merged -> Verifying."""
     result = retrigger.retrigger(body) or {}
     incidents.set_phase(patch, Phase.VERIFYING, **result)
-    # TODO(#11): wait for Argo CD sync, resubmit the failed workflow, run the verify window.
+    # The Merged phase is handled by verify_handlers.on_merged_sync (#11); this hook is kept for tests.
 
 
 @kopf.on.startup()
@@ -86,7 +87,3 @@ def on_detected(body, patch, **_):
 def on_collected(body, patch, **_):
     analyze_hook(body, patch)
 
-
-@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.MERGED.value)
-def on_merged(body, patch, **_):
-    retrigger_hook(body, patch)
