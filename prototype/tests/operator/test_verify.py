@@ -153,6 +153,26 @@ def test_workflow_verdicts():
         assert p.get("status", {}).get("phase") == want
 
 
+def test_repeated_verify_failures_end_in_escalated():
+    inc = verifying(rerun="build-repair-x1")
+    inc["spec"]["source"] = {"kind": "Workflow", "name": "wf1", "template": "build"}
+    inc["status"]["attempts"] = 1
+    c = FakeCustom(workflow={"status": {"phase": "Failed"}})
+    phases = []
+    for _ in range(5):
+        p: dict = {}
+        vh.verify_step(inc, p, None, c, 120, 3, T0)
+        phases.append(p["status"]["phase"])
+        if p["status"]["phase"] == "Escalated":
+            break
+        inc["status"].update(p["status"])
+        inc["status"]["phase"] = "Verifying"  # the next attempt got merged and is verifying again
+        inc["status"]["verify"] = {"startedAt": ts(T0), "rerun": "build-repair-x1"}
+    assert phases == ["Analyzing", "Analyzing", "Escalated"]
+    assert inc["status"]["attempts"] == 3 and p["status"]["attempts"] == 4
+    assert p["status"]["outcome"]["result"] == "escalated"
+
+
 # --- Closing and learner ---
 
 

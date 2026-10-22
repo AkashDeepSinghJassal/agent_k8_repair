@@ -89,13 +89,16 @@ def verify_step(
     elif verdict.state == "failed":
         feedback = list(status.get("reviewFeedback") or [])
         feedback.append("re-run failed: " + "; ".join([verdict.reason, *verdict.details]))
-        if (status.get("attempts") or 0) >= max_attempts:
+        attempts = (status.get("attempts") or 0) + 1  # this failed verification consumed an attempt
+        if attempts > max_attempts:  # same comparison as repair_flow.analyze_step
             incidents.set_phase(
-                patch, Phase.ESCALATED, now, reviewFeedback=feedback, verify=None,
+                patch, Phase.ESCALATED, now, reviewFeedback=feedback, verify=None, attempts=attempts,
                 outcome={"result": "escalated", "reason": f"attempts exhausted: {verdict.reason}"},
             )
         else:
-            incidents.set_phase(patch, Phase.ANALYZING, now, reviewFeedback=feedback, verify=None)
+            incidents.set_phase(
+                patch, Phase.ANALYZING, now, reviewFeedback=feedback, verify=None, attempts=attempts
+            )
     return verdict.state
 
 
