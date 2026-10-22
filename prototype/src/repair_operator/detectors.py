@@ -14,6 +14,7 @@ import kopf
 from . import incidents
 from .fingerprint import dedupe_fingerprint
 from .incidents import GROUP, PLURAL, VERSION
+from .models import Phase
 
 log = logging.getLogger(__name__)
 
@@ -159,18 +160,24 @@ def event_incident_spec(namespace: str, event: dict, pod_body: dict | None, apps
     }
 
 
-def route_workflow_failure(api: Any, namespace: str, incident: str, workflow: str) -> dict | None:
-    """A re-run created by the operator failed: feed it back to the incident."""
-    inc = api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, incident)
-    feedback = list((inc.get("status") or {}).get("reviewFeedback") or [])
-    feedback.append("re-run failed")
-    patch: dict = {}
-    incidents.set_phase(patch, "Analyzing", reviewFeedback=feedback)
-    api.patch_namespaced_custom_object_status(
-        GROUP, VERSION, namespace, PLURAL, incident, patch
-    )
-    log.info("workflow %s re-run failed, incident %s back to Analyzing", workflow, incident)
-    return patch
+def route_workflow_failure(api: Any, namespace: str, incident: str, workflow: str) -> bool:
+    """A workflow carrying the incident label failed. Returns True when it is the live re-run.
+
+    The verify tick (``verify_handlers.verify_step``) is the single owner of the transition: it sees
+    the failed workflow, writes the one feedback entry and moves the incident on. This detector
+    only logs, and does nothing for late failures, other workflows or terminal incidents.
+    """
+    try:
+        inc = api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, incident)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cannot read incident %s for failed workflow %s: %s", incident, workflow, exc)
+        return False
+    status = inc.get("status") or {}
+    if status.get("phase") != Phase.VERIFYING.value or (status.get("verify") or {}).get("rerun") != workflow:
+        log.info("workflow %s failed but incident %s is not waiting for it, ignoring", workflow, incident)
+        return False
+    log.info("re-run %s of incident %s failed; the verify tick will handle it", workflow, incident)
+    return True
 
 
 # --- cluster clients (lazy, so importing this module needs no kubeconfig) ---

@@ -122,12 +122,44 @@ def test_event_only_failed_scheduling_warning():
     assert d.event_incident_spec("demo", ev, None)["source"]["owner"] == "Pod/p"
 
 
-def test_rerun_failure_routes_to_incident():
+def _api(phase, rerun="build-xyz"):
     api = MagicMock()
-    api.get_namespaced_custom_object.return_value = {"status": {"reviewFeedback": ["earlier"]}}
-    patch = d.route_workflow_failure(api, "demo", "ri-abc", "build-xyz")
-    assert patch["status"]["phase"] == "Analyzing"
-    assert patch["status"]["reviewFeedback"] == ["earlier", "re-run failed"]
-    args = api.patch_namespaced_custom_object_status.call_args.args
-    assert args[4] == "ri-abc" and args[5] is patch
+    api.get_namespaced_custom_object.return_value = {"status": {"phase": phase, "verify": {"rerun": rerun}}}
+    return api
+
+
+def test_rerun_failure_is_only_recognised_while_verifying_that_workflow():
+    api = _api("Verifying")
+    assert d.route_workflow_failure(api, "demo", "ri-abc", "build-xyz") is True
+    assert d.route_workflow_failure(_api("Verifying", "other"), "demo", "ri-abc", "build-xyz") is False
+    api.patch_namespaced_custom_object_status.assert_not_called()  # the verify tick owns the transition
     api.create_namespaced_custom_object.assert_not_called()
+
+
+def test_late_failure_changes_nothing_on_terminal_incident():
+    for phase in ("Healed", "Failed", "Escalated", "Dismissed", "Analyzing"):
+        api = _api(phase)
+        assert d.route_workflow_failure(api, "demo", "ri-abc", "build-xyz") is False
+        api.patch_namespaced_custom_object_status.assert_not_called()
+
+
+def test_one_feedback_entry_per_failure():
+    from datetime import UTC, datetime
+
+    from repair_operator import verify_handlers as vh
+
+    inc = {
+        "metadata": {"name": "ri-abc", "namespace": "demo"},
+        "spec": {"source": {"kind": "Workflow", "name": "wf1", "template": "build"}},
+        "status": {"phase": "Verifying", "attempts": 1, "reviewFeedback": [],
+                   "verify": {"startedAt": "2026-11-03T10:00:00Z", "rerun": "build-xyz"}},
+    }
+    api = MagicMock()
+    api.get_namespaced_custom_object.side_effect = lambda g, v, ns, plural, name: (
+        inc if plural == "repairincidents" else {"status": {"phase": "Failed"}}
+    )
+    d.route_workflow_failure(api, "demo", "ri-abc", "build-xyz")
+    patch: dict = {}
+    vh.verify_step(inc, patch, None, api, 120, 3, datetime(2026, 11, 3, 10, 1, tzinfo=UTC))
+    assert patch["status"]["phase"] == "Analyzing" and len(patch["status"]["reviewFeedback"]) == 1
+    api.patch_namespaced_custom_object_status.assert_not_called()
