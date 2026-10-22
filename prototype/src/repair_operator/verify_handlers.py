@@ -199,13 +199,12 @@ def on_merged_sync(body, patch, **_):
         raise kopf.TemporaryError("waiting for Argo CD sync", delay=delay)
 
 
-@kopf.timer(
-    GROUP, VERSION, PLURAL, interval=10.0, sharp=False,
-    when=lambda body, **_: (body.get("status") or {}).get("phase") == Phase.VERIFYING.value,
-)
+@kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.VERIFYING.value)
 def verify_tick(body, patch, **_):
+    """Polls by retrying (not ``@kopf.timer``, which would add a finalizer to the incident)."""
     core_api, custom_api, _ = _clients()
     verify_step(body, patch, core_api, custom_api)
+    incidents.keep_polling(patch, Phase.VERIFYING, 10.0)
 
 
 def _on_closed(body, patch, **_):

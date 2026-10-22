@@ -179,3 +179,15 @@ def set_phase(
                     "fault": fields.get("fault") or status.get("fault"),
                 },
             )
+
+
+def keep_polling(patch: dict, phase: Phase, delay: float) -> None:
+    """Re-run the calling ``on.field(status.phase)`` handler after ``delay`` seconds while still in ``phase``.
+
+    Used instead of ``@kopf.timer``: timers make Kopf add a finalizer to every matching incident, which
+    blocks ``kubectl delete`` whenever the operator is down. Retried field handlers need none.
+    """
+    import kopf
+
+    if (patch.get("status") or {}).get("phase", phase.value) == phase.value:
+        raise kopf.TemporaryError(f"polling {phase.value}", delay=delay)

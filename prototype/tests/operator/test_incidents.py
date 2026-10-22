@@ -100,3 +100,23 @@ def test_signal_routed_to_open_incident_for_same_owner_container():
     api.list_namespaced_custom_object.return_value["items"][0]["status"]["phase"] = "Healed"
     open_incident(api, "demo", src, FP)
     api.create_namespaced_custom_object.assert_called_once()
+
+
+def test_no_handler_requires_a_finalizer():
+    import kopf
+
+    from repair_operator import main  # noqa: F401  (registers handlers)
+
+    reg = kopf.get_default_registry()
+    assert not list(reg._spawning._handlers)  # no timers/daemons
+    assert not any(h.requires_finalizer for h in reg._changing._handlers)
+
+
+def test_keep_polling_retries_only_while_phase_unchanged():
+    import kopf
+
+    from repair_operator.models import Phase
+
+    with pytest.raises(kopf.TemporaryError):
+        incidents.keep_polling({}, Phase.VERIFYING, 5)
+    incidents.keep_polling({"status": {"phase": "Healed"}}, Phase.VERIFYING, 5)
