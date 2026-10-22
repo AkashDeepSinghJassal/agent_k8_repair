@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .kube import DEFAULT_NAMESPACES, WORKFLOW_NAMESPACE, KubeClientReader, KubeReader, KubeUnavailable
+from .kube import DEFAULT_NAMESPACES, WORKFLOW_NAMESPACES, KubeClientReader, KubeReader, KubeUnavailable
 
 STATIC = Path(__file__).parent / "static"
 CONTEXT = os.environ.get("REPAIR_KUBE_CONTEXT", "kind-repair")
@@ -56,7 +56,7 @@ def argocd(reader: KubeReader = Reader):
 
 @app.get("/api/workflows")
 def workflows(reader: KubeReader = Reader):
-    return reader.workflows(WORKFLOW_NAMESPACE)
+    return reader.workflows(list(WORKFLOW_NAMESPACES))
 
 
 @app.get("/api/incidents")

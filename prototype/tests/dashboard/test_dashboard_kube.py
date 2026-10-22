@@ -96,7 +96,7 @@ def test_parse_argocd_app_empty_status():
 def test_parse_workflow_failed_node():
     w = parse_workflow(
         {
-            "metadata": {"name": "build-1", "namespace": "argo"},
+            "metadata": {"name": "build-1", "namespace": "demo-b"},
             "spec": {"workflowTemplateRef": {"name": "ci"}},
             "status": {
                 "phase": "Failed",

@@ -23,13 +23,13 @@ def test_endpoints_return_fake_data(make_client):
         FakeKubeReader(
             services=[SVC, {**SVC, "name": "x", "namespace": "other"}],
             apps=[{"name": "demo-app"}],
-            workflows=[{"name": "w1", "namespace": "argo"}],
+            workflows=[{"name": "w1", "namespace": "demo"}],
             incidents=[INC],
         )
     )
     assert [s["name"] for s in c.get("/api/services").json()] == ["api"]  # only demo namespaces
     assert c.get("/api/argocd").json() == [{"name": "demo-app"}]
-    assert c.get("/api/workflows").json() == [{"name": "w1", "namespace": "argo"}]
+    assert c.get("/api/workflows").json() == [{"name": "w1", "namespace": "demo"}]
     assert c.get("/api/incidents").json() == [INC]
     assert c.get("/api/incidents/demo/ri-1").json() == INC
     assert c.get("/api/health").json() == {"status": "ok", "cluster": True, "context": "kind-repair"}
@@ -67,3 +67,24 @@ def test_real_reader_without_cluster_is_unavailable(monkeypatch, tmp_path):
 
     with pytest.raises(KubeUnavailable):
         KubeClientReader("kind-repair").argocd_apps()
+
+
+def test_workflows_aggregated_from_demo_and_demo_b_only(make_client):
+    wfs = [
+        {"name": "a", "namespace": "demo", "startedAt": "2026-01-01T00:00:01Z"},
+        {"name": "b", "namespace": "demo-b", "startedAt": "2026-01-01T00:00:03Z"},
+        {"name": "c", "namespace": "demo", "startedAt": "2026-01-01T00:00:02Z"},
+        {"name": "old", "namespace": "argo", "startedAt": "2026-01-01T00:00:09Z"},
+    ]
+    c = make_client(FakeKubeReader(workflows=wfs))
+    assert [w["name"] for w in c.get("/api/workflows").json()] == ["b", "c", "a"]
+
+
+def test_workflows_limited_to_latest_20(make_client):
+    wfs = [
+        {"name": f"w{i:02d}", "namespace": "demo-b" if i % 2 else "demo", "startedAt": f"2026-01-01T00:00:{i:02d}Z"}
+        for i in range(30)
+    ]
+    c = make_client(FakeKubeReader(workflows=wfs))
+    names = [w["name"] for w in c.get("/api/workflows").json()]
+    assert len(names) == 20 and names[0] == "w29" and names[-1] == "w10"

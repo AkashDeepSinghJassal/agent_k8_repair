@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 DEFAULT_NAMESPACES = ("demo", "demo-b")
-WORKFLOW_NAMESPACE = "argo"
+WORKFLOW_NAMESPACES = ("demo", "demo-b")  # Argo controller workflowNamespaces (CONTRACTS §3)
+WORKFLOW_LIMIT = 20
 VERSION_LABEL = "app.kubernetes.io/version"
 
 
@@ -21,7 +22,7 @@ class KubeUnavailable(Exception):
 class KubeReader(Protocol):
     def services(self, namespaces: tuple[str, ...] | list[str]) -> list[dict]: ...
     def argocd_apps(self) -> list[dict]: ...
-    def workflows(self, ns: str) -> list[dict]: ...
+    def workflows(self, namespaces: tuple[str, ...] | list[str]) -> list[dict]: ...
     def incidents(self) -> list[dict]: ...
     def incident(self, ns: str, name: str) -> dict | None: ...
 
@@ -243,9 +244,13 @@ class KubeClientReader:
     def argocd_apps(self):
         return [parse_argocd_app(a) for a in self._custom("argoproj.io", "v1alpha1", "applications", "argocd")]
 
-    def workflows(self, ns):
-        items = [parse_workflow(w) for w in self._custom("argoproj.io", "v1alpha1", "workflows", ns)]
-        return sorted(items, key=lambda w: w["startedAt"] or "", reverse=True)[:20]
+    def workflows(self, namespaces):
+        items = [
+            parse_workflow(w)
+            for ns in namespaces
+            for w in self._custom("argoproj.io", "v1alpha1", "workflows", ns)
+        ]
+        return sorted(items, key=lambda w: w["startedAt"] or "", reverse=True)[:WORKFLOW_LIMIT]
 
     def incidents(self):
         items = [parse_incident(i) for i in self._custom("repair.example.dev", "v1alpha1", "repairincidents")]
@@ -280,9 +285,10 @@ class FakeKubeReader:
         self._check()
         return self._apps
 
-    def workflows(self, ns):
+    def workflows(self, namespaces):
         self._check()
-        return [w for w in self._workflows if w.get("namespace", ns) == ns]
+        items = [w for w in self._workflows if w.get("namespace") in namespaces]
+        return sorted(items, key=lambda w: w.get("startedAt") or "", reverse=True)[:WORKFLOW_LIMIT]
 
     def incidents(self):
         self._check()
