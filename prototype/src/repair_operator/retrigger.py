@@ -109,16 +109,21 @@ class Verdict:
     reason: str = ""
     details: list[str] = field(default_factory=list)
     healthy_since: str | None = None
+    restarts: dict[str, int] | None = None  # per-pod restart baseline to persist (deployment checks)
 
 
 def _pod_problem(pod: dict) -> str | None:
+    """A container stuck in a waiting error reason (CrashLoopBackOff, ImagePullBackOff, ...)."""
     for cs in (pod.get("status") or {}).get("containerStatuses") or []:
         waiting = ((cs.get("state") or {}).get("waiting") or {}).get("reason")
         if waiting in FAILURE_WAITING:
             return f"{pod['metadata']['name']}/{cs.get('name')}: {waiting}"
-        if cs.get("restartCount", 0) > 0:
-            return f"{pod['metadata']['name']}/{cs.get('name')}: restarted {cs['restartCount']}x"
     return None
+
+
+def pod_restarts(pod: dict) -> int:
+    """Total restartCount over all containers of a pod."""
+    return sum(cs.get("restartCount", 0) for cs in (pod.get("status") or {}).get("containerStatuses") or [])
 
 
 def _pod_ready(pod: dict) -> bool:
@@ -147,28 +152,35 @@ def owner_pods(pods: list[dict], owner: str) -> list[dict]:
 
 def evaluate_deployment(
     pods: list[dict], owner: str, app: dict, started: str | None, healthy_since: str | None,
-    window: int, now: datetime,
+    window: int, now: datetime, baseline: dict[str, int] | None = None,
 ) -> Verdict:
-    """Pods created after ``started`` must be Ready with zero restarts for ``window`` seconds."""
+    """Judge every current pod of ``owner`` (the fix may not recreate pods, e.g. ConfigMap-only repairs).
+
+    Healthy when all pods are Ready, none waits in an error reason, the Application is Healthy and no
+    pod's total restartCount changed since ``baseline``. Any change or unready pod resets the clock;
+    the window must then pass again. A window that never succeeds fails after ``window`` + timeout.
+    """
     start = parse_ts(started) or now
-    fresh = [
-        p for p in owner_pods(pods, owner)
-        if (parse_ts(p["metadata"].get("creationTimestamp")) or now) >= start
+    mine = owner_pods(pods, owner)
+    current = {p["metadata"]["name"]: pod_restarts(p) for p in mine}
+    restarted = [
+        f"{n}: restarts {baseline[n]} -> {c}" for n, c in current.items() if n in (baseline or {}) and baseline[n] != c
     ]
-    problems = [m for m in (_pod_problem(p) for p in fresh) if m]
-    if problems:
-        return Verdict("failed", "pods unhealthy after the fix", problems)
-    healthy = bool(fresh) and all(_pod_ready(p) for p in fresh) and app_healthy(app)
+    problems = [m for m in (_pod_problem(p) for p in mine) if m]
+    unready = [p["metadata"]["name"] + ": not Ready" for p in mine if not _pod_ready(p)]
+    healthy = bool(mine) and not (restarted or problems or unready) and app_healthy(app)
     if not healthy:
-        if healthy_since:  # was healthy, no longer is (e.g. readiness lost)
-            return Verdict("failed", "lost readiness inside the verify window", [f"{len(fresh)} fresh pods"])
         if (now - start).total_seconds() > window + VERIFY_TIMEOUT_EXTRA_SECONDS:
-            return Verdict("failed", "verify_timeout", [f"{len(fresh)} fresh pods, app healthy={app_healthy(app)}"])
-        return Verdict("waiting", "waiting for pods and Application to become healthy")
+            details = [*restarted, *problems, *unready] or [f"{len(mine)} pods, app healthy={app_healthy(app)}"]
+            return Verdict("failed", "verify_timeout", details, restarts=current)
+        return Verdict(
+            "waiting", "waiting for pods and Application to become healthy",
+            [*restarted, *problems, *unready], restarts=current,
+        )
     since = healthy_since or iso(now)
     if (now - (parse_ts(since) or now)).total_seconds() >= window:
-        return Verdict("healed", "healthy for the whole window", healthy_since=since)
-    return Verdict("healthy", "inside the window", healthy_since=since)
+        return Verdict("healed", "healthy for the whole window", healthy_since=since, restarts=current)
+    return Verdict("healthy", "inside the window", healthy_since=since, restarts=current)
 
 
 def evaluate_workflow(wf: dict, started: str | None, window: int, now: datetime) -> Verdict:
@@ -204,5 +216,5 @@ def evaluate(
     app = get_app(custom_api, ns)
     return evaluate_deployment(
         pods, source.get("owner") or f"Pod/{source.get('name', '')}", app,
-        started, verify.get("healthySince"), window, now,
+        started, verify.get("healthySince"), window, now, verify.get("restarts"),
     )

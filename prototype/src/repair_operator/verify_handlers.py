@@ -3,7 +3,7 @@
 Status fields read:  ``mergeSha`` (or ``mergedSha``) set by the PR poller (#10), ``pullRequest``,
 ``proposal`` (file, edits, template, params), ``signature``, ``attempts``, ``reviewFeedback``,
 ``timestamps.merged``, ``spec.source``.
-Status fields written: ``verify`` {startedAt, healthySince, rerun}, ``reviewFeedback``, ``outcome``,
+Status fields written: ``verify`` {startedAt, healthySince, rerun, restarts}, ``reviewFeedback``, ``outcome``,
 ``learning`` {recorded, outcome, mergedMatchesProposal}.
 
 Plain functions hold the logic; the Kopf handlers at the bottom are thin wrappers.
@@ -82,8 +82,18 @@ def verify_step(
     now = now or datetime.now(UTC)
     verdict = retrigger.evaluate(body, core_api=core_api, custom_api=custom_api, window=window, now=now)
     status = body.get("status") or {}
-    if verdict.state == "healthy":
-        patch.setdefault("status", {}).setdefault("verify", {})["healthySince"] = verdict.healthy_since
+    verify = status.get("verify") or {}
+    if verdict.state in ("healthy", "waiting"):  # persist the clock and the restart baselines
+        out: dict[str, Any] = {}
+        if verdict.healthy_since != verify.get("healthySince"):
+            out["healthySince"] = verdict.healthy_since  # None resets the window
+        if verdict.restarts is not None:
+            old = verify.get("restarts") or {}
+            merged = {**{k: None for k in old if k not in verdict.restarts}, **verdict.restarts}
+            if merged != old:
+                out["restarts"] = merged
+        if out:
+            patch.setdefault("status", {}).setdefault("verify", {}).update(out)
     elif verdict.state == "healed":
         _close(patch, Phase.HEALED, verdict.reason, now)
     elif verdict.state == "failed":

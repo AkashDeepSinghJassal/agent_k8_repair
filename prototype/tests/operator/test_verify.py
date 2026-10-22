@@ -106,8 +106,9 @@ def verifying(**verify):
 
 
 def test_deployment_window_to_healed():
-    core = FakeCore([pod(T0 - timedelta(minutes=5), ready=False, restarts=9, name="api-old-1", rs="api-old"),
-                     pod(T0 + timedelta(seconds=10))])
+    old = pod(T0 - timedelta(minutes=5), ready=False, restarts=9, name="api-old-1", rs="api-old")
+    old["metadata"]["deletionTimestamp"] = ts(T0 + timedelta(seconds=5))  # replaced by the rollout
+    core = FakeCore([old, pod(T0 + timedelta(seconds=10))])
     c = FakeCustom(app=synced())
     p: dict = {}
     t1 = T0 + timedelta(seconds=20)
@@ -124,7 +125,7 @@ def test_deployment_waits_when_not_ready_and_times_out():
     c = FakeCustom(app=synced("x", health="Progressing"))
     p: dict = {}
     assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=30)) == "waiting"
-    assert p == {}
+    assert "phase" not in p.get("status", {}) and "healthySince" not in p["status"]["verify"]
     assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=800)) == "failed"
 
 
@@ -134,13 +135,16 @@ def test_failure_goes_back_to_analyzing_then_escalates():
     inc = verifying()
     inc["status"]["reviewFeedback"] = ["earlier"]
     p: dict = {}
-    assert vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=30)) == "failed"
+    assert vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=30)) == "waiting"
+    assert vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=800)) == "failed"
+    p = {}
+    vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=800))
     assert p["status"]["phase"] == "Analyzing"
     assert p["status"]["reviewFeedback"][0] == "earlier"
     assert p["status"]["reviewFeedback"][1].startswith("re-run failed")
     inc["status"]["attempts"] = 3
     p = {}
-    vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=30))
+    vh.verify_step(inc, p, core, c, 120, 3, T0 + timedelta(seconds=800))
     assert p["status"]["phase"] == "Escalated" and p["status"]["outcome"]["result"] == "escalated"
 
 
@@ -171,6 +175,79 @@ def test_repeated_verify_failures_end_in_escalated():
     assert phases == ["Analyzing", "Analyzing", "Escalated"]
     assert inc["status"]["attempts"] == 3 and p["status"]["attempts"] == 4
     assert p["status"]["outcome"]["result"] == "escalated"
+
+
+class Ticker:
+    """Runs verify_step repeatedly, feeding the patch back like Kopf would."""
+
+    def __init__(self, core, window=120):
+        self.core, self.window, self.inc = core, window, verifying()
+        self.custom = FakeCustom(app=synced())
+
+    def tick(self, t):
+        p: dict = {}
+        state = vh.verify_step(self.inc, p, self.core, self.custom, self.window, 3, t)
+        st = self.inc["status"]
+        for k, v in p.get("status", {}).items():
+            if k == "verify" and isinstance(v, dict):
+                for kk, vv in v.items():
+                    if vv is None:
+                        st["verify"].pop(kk, None)
+                    elif isinstance(vv, dict) and kk == "restarts":
+                        r = st["verify"].setdefault("restarts", {})
+                        r.update(vv)
+                        for dead in [x for x, y in r.items() if y is None]:
+                            del r[dead]
+                    else:
+                        st["verify"][kk] = vv
+            else:
+                st[k] = v
+        return state
+
+
+def test_configmap_only_fix_old_pod_restarts_once_then_stays_ready():
+    """No fresh pods: the crashing pod picks up the new ConfigMap after one restart and stays Ready."""
+    created = T0 - timedelta(hours=1)
+    crashing = pod(created, ready=False, restarts=5, waiting="CrashLoopBackOff")
+    tk = Ticker(FakeCore([crashing]))
+    assert tk.tick(T0 + timedelta(seconds=10)) == "waiting"
+    assert tk.inc["status"]["verify"]["restarts"] == {"api-5d9f-abcde": 5}
+    tk.core.pods = [pod(created, ready=True, restarts=6)]  # restarted once with the fixed config
+    assert tk.tick(T0 + timedelta(seconds=20)) == "waiting"  # the restart resets the clock
+    assert tk.inc["status"]["verify"].get("healthySince") is None
+    assert tk.tick(T0 + timedelta(seconds=30)) == "healthy"
+    since = tk.inc["status"]["verify"]["healthySince"]
+    assert tk.tick(T0 + timedelta(seconds=100)) == "healthy"
+    assert tk.tick(T0 + timedelta(seconds=151)) == "healed"
+    assert tk.inc["status"]["phase"] == "Healed" and since == ts(T0 + timedelta(seconds=30))
+
+
+def test_pod_that_keeps_restarting_is_not_healed():
+    created = T0 - timedelta(hours=1)
+    tk = Ticker(FakeCore([]))
+    count, states = 5, []
+    for i in range(1, 30):
+        count += 1  # restarts on every tick, yet Ready between restarts
+        tk.core.pods = [pod(created, ready=True, restarts=count)]
+        states.append(tk.tick(T0 + timedelta(seconds=40 * i)))
+        if states[-1] == "failed":
+            break
+    assert "healed" not in states and set(states[1:-1]) == {"waiting"}  # first tick only records baselines
+    assert states[-1] == "failed" and 40 * i > 120 + 600  # only the window + timeout ends it
+    assert tk.inc["status"]["phase"] == "Analyzing"
+
+
+def test_unready_pod_resets_the_window():
+    created = T0 - timedelta(hours=1)
+    tk = Ticker(FakeCore([pod(created)]))
+    assert tk.tick(T0 + timedelta(seconds=10)) == "healthy"
+    tk.core.pods = [pod(created, ready=False)]
+    assert tk.tick(T0 + timedelta(seconds=60)) == "waiting"
+    assert tk.inc["status"]["verify"].get("healthySince") is None
+    tk.core.pods = [pod(created)]
+    assert tk.tick(T0 + timedelta(seconds=70)) == "healthy"
+    assert tk.tick(T0 + timedelta(seconds=150)) == "healthy"  # only 80 s since the reset
+    assert tk.tick(T0 + timedelta(seconds=200)) == "healed"
 
 
 # --- Closing and learner ---
