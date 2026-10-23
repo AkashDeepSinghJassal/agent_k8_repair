@@ -161,6 +161,18 @@ def inverse_edits(edits: list[Edit]) -> list[Edit]:
     return [e.inverse() for e in reversed(edits)]
 
 
+def is_injected(entry: dict[str, Any], text: str) -> bool:
+    """True when ``text`` carries the fault (every breaking edit's replacement is present).
+
+    Plain "does the inverse apply" is ambiguous when one side is a substring of the other (F3, F4, F5), so an
+    edit counts as applied when its replacement is present and either the original text is gone or the original
+    is itself contained in the replacement.
+    """
+    return all(
+        e.replace in text and (e.find not in text or e.find in e.replace) for e in edits_for(entry)
+    )
+
+
 def _commit_message(entry: dict[str, Any], revert: bool) -> str:
     if revert:
         return f"fault({entry['id']}): revert {entry['title']}\n\nRepair-Fault-Revert: {entry['id']}"

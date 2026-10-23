@@ -283,3 +283,13 @@ def test_cli_inject_returns_error_on_fault_error(monkeypatch, capsys):
     monkeypatch.delenv("REPAIR_GITHUB_TOKEN", raising=False)
     assert cli_main(["inject", "F1"]) == 1
     assert "REPAIR_GITHUB_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fault_id", GIT_IDS)
+def test_is_injected_distinguishes_healthy_from_broken(fault_id):
+    from repair_faults.injector import is_injected
+
+    entry = get_fault(fault_id)
+    healthy = _fixture_text(entry["target_file"])
+    assert not is_injected(entry, healthy)
+    assert is_injected(entry, apply_edits(healthy, edits_for(entry)))
