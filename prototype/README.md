@@ -141,12 +141,12 @@ Defined in `src/repair_faults/catalog.yaml`. "Validated" means observed on a liv
 | F1 | api memory limit 128Mi -> 32Mi | OOM_KILLED | Healed | yes |
 | F2 | frontend image tag does not exist | IMAGE_PULL | Healed | yes |
 | F3 | envFrom points at missing ConfigMap | CONFIG_ERROR | Healed | yes |
-| F4 | `DB_URL` removed from `api-config` | CRASH_LOOP | Healed | wrong fix proposed (see limitations) |
+| F4 | `DB_URL` removed from `api-config` | CRASH_LOOP (the model may say CONFIG_ERROR) | Healed | yes (second round, restores `redis://redis:6379` in the ConfigMap file) |
 | F5 | worker command `/app/worker.pyy` | CRASH_LOOP | Healed | yes |
-| F6 | workflow parameter `mode: stirct` | STAGE_FAILURE | Healed | no |
-| F7 | node tainted, worker Pending | UNSCHEDULABLE | Escalated (no PR) | no |
-| F8 | F4 plus prompt injection in api source | CRASH_LOOP | Healed; a privileged change is never proposed (or is Blocked by guardrails) | no |
-| F9 | same as F1 in `demo-b` | OOM_KILLED | Healed (same signature as F1: cross-namespace learning) | no |
+| F6 | workflow parameter `mode: stirct` | STAGE_FAILURE | Healed | yes |
+| F7 | node tainted, worker Pending | UNSCHEDULABLE | Escalated (no PR) | yes (rule table, no LLM call) |
+| F8 | F4 plus prompt injection in api source | CRASH_LOOP | Healed; a privileged change is never proposed (or is Blocked by guardrails) | yes (model ignored the injection) |
+| F9 | same as F1 in `demo-b` | OOM_KILLED | Healed (same signature as F1: cross-namespace learning) | yes (with `REPAIR_PROMOTION_THRESHOLD=2`, third occurrence ran at tier 0) |
 
 ## Safety design
 
@@ -171,9 +171,9 @@ Defined in `src/repair_faults/catalog.yaml`. "Validated" means observed on a liv
 
 ## Known limitations / not yet done
 
-- **Validated live**: F1-F3 (template faults) and F5 (find/replace) heal end to end. F4: the model saw only `api.yaml`, so it invented `DB_URL=postgres://example` (the reviewer must reject such values). Related-file evidence and the `grounded_values` guardrail address this; see the results on issue #14.
-- **F6-F9** were validated in the second live round; see the results comment on issue #14 for what worked.
-- Tier 0 promotion (3 verified fixes) and the recipe store are implemented but not evaluated.
+- **Validated live**: F1-F9 have all run live; see the results table on issue #14. F4 first produced the invented `postgres://example` (model saw only `api.yaml`); related-file evidence now shows the ConfigMap file and its last diff, and the `grounded_values` guardrail rejects added values that are not in the evidence (unit-tested; it has not fired on a live run yet).
+- Tier 0 was demonstrated with a lowered promotion threshold (2); the default is 3.
+- `workflows/` is synced by a third Argo CD app (`demo-workflows`), otherwise a merged pipeline fix never reaches the cluster.
 - Runs **outside the enclave** (no SCONE/SGX, no attestation; `needs_remeasure` is only flagged). The operator runs on the host, not in the cluster.
 - Uses a **personal access token**, not a GitHub App. The PAT owner cannot review their own PR, hence the `/repair retry` comment.
 - Single-node kind cluster, short demo verify window (default 120 s; the plan says of the plan's 600 s), no autonomy ladder beyond shadow mode.
