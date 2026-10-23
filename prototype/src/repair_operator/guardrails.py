@@ -1,7 +1,7 @@
-"""Guardrails (CONTRACTS section 8): six ordered checks between a proposal and GitHub.
+"""Guardrails (CONTRACTS section 8): seven ordered checks between a proposal and GitHub.
 
 ``check(proposal, current_text, new_text, path)`` runs path_allowlist, exact_edit, size_cap,
-static, server_dry_run and policy in that order and stops at the first failure.
+grounded_values, static, server_dry_run and policy in that order and stops at the first failure.
 
 The policy check needs the pre-edit file to compare against (limit raised >4x, registry
 change, removed probes, new secrets, new RBAC objects). ``current_text`` is parsed here and
@@ -76,9 +76,11 @@ def _out(p: subprocess.CompletedProcess) -> str:
 # ---- checks ------------------------------------------------------------------
 
 
-def path_allowlist(proposal: Proposal, path: str) -> tuple[bool, str]:
-    if proposal.file != path:
-        return False, f"proposal file {proposal.file!r} is not the evidence file {path!r}"
+def path_allowlist(proposal: Proposal, path: str, allowed: Iterable[str] = ()) -> tuple[bool, str]:
+    """``path`` is the file being edited; it must be the proposal's file and in the evidence's allowed set."""
+    allowed_set = {a for a in allowed if a} | {path}
+    if proposal.file != path or path not in allowed_set:
+        return False, f"proposal file {proposal.file!r} is not an evidence file ({sorted(allowed_set)})"
     parts = PurePosixPath(path).parts
     if ".." in parts or path.startswith("/") or "\\" in path or not _ALLOWED.match(path):
         return False, f"{path!r} does not match deploy/**/*.yaml or workflows/**/*.yaml"
@@ -105,6 +107,46 @@ def changed_lines(current_text: str, new_text: str) -> int:
 def size_cap(current_text: str, new_text: str, cap: int = SIZE_CAP) -> tuple[bool, str]:
     n = changed_lines(current_text, new_text)
     return (n <= cap), f"{n} changed lines (cap {cap})"
+
+
+_SCHEME_RE = re.compile(r"[A-Za-z][\w+.-]*://[^\s\"'`,<>]+")
+_HOSTPORT_RE = re.compile(r"(?<![\w./:-])[A-Za-z0-9][\w.-]*:\d{2,5}\b")
+_UNIT_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?:Ki|Mi|Gi|Ti)\b")
+_QUOTED_RE = re.compile(r"\"([^\"]{8,})\"|'([^']{8,})'")
+_IMAGE_RE = re.compile(r"^\s*-?\s*image:\s*[\"']?([^\s\"']+)")
+
+
+def added_literals(current_text: str, new_text: str) -> list[str]:
+    """Literals on lines the edits added: URLs, host:port, image refs, sizes, quoted strings with ':' or '/'."""
+    old = set(current_text.splitlines())
+    out: dict[str, None] = {}
+    for line in new_text.splitlines():
+        if line in old or not line.strip():
+            continue
+        for m in _SCHEME_RE.finditer(line):
+            out[m.group(0)] = None
+        for m in _HOSTPORT_RE.finditer(line):
+            out[m.group(0)] = None
+        for m in _UNIT_RE.finditer(line):
+            out[m.group(0)] = None
+        for m in _QUOTED_RE.finditer(line):
+            val = m.group(1) or m.group(2)
+            if ":" in val or "/" in val:
+                out[val] = None
+        m = _IMAGE_RE.match(line)
+        if m and ("/" in m.group(1) or ":" in m.group(1)):
+            out[m.group(1)] = None
+    return list(out)
+
+
+def grounded_values(proposal: Proposal, current_text: str, new_text: str, evidence_text: str) -> tuple[bool, str]:
+    """Every literal added by the edits must appear verbatim in the evidence or the original file."""
+    if proposal.template:  # template-computed values (new_limit clamps, tags from the diff) are exempt
+        return True, "template edit (exempt)"
+    for lit in added_literals(current_text, new_text):
+        if lit not in evidence_text and lit not in current_text:
+            return False, f"ungrounded value {lit!r}: it appears nowhere in the evidence or the original file"
+    return True, "ok"
 
 
 def _kinds(text: str) -> set[str]:
@@ -191,13 +233,19 @@ def check(
     *,
     skip: Iterable[str] = (),
     policy_dir: Path | str | None = None,
+    allowed_paths: Iterable[str] = (),
+    evidence_text: str | None = None,
 ) -> GuardrailResult:
-    """Run the six checks in order; the first failure wins. ``skip`` names checks to skip (tests)."""
+    """Run the seven checks in order; the first failure wins. ``skip`` names checks to skip (tests).
+
+    ``evidence_text=None`` skips ``grounded_values`` (callers without a bundle)."""
     skipped = set(skip)
     steps: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
-        ("path_allowlist", lambda: path_allowlist(proposal, path)),
+        ("path_allowlist", lambda: path_allowlist(proposal, path, allowed_paths)),
         ("exact_edit", lambda: exact_edit(proposal, current_text, new_text)),
         ("size_cap", lambda: size_cap(current_text, new_text)),
+        ("grounded_values", lambda: grounded_values(proposal, current_text, new_text, evidence_text)
+         if evidence_text is not None else (True, "no evidence given")),
         ("static", lambda: static(new_text, path)),
         ("server_dry_run", lambda: server_dry_run(new_text, path)),
         ("policy", lambda: policy(current_text, new_text, path, policy_dir)),

@@ -84,6 +84,22 @@
         "file": {"type": "string", "description": "at most 400 lines"}
       }
     },
+    "related_files": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "ConfigMap source files (and Secret names, no content) referenced by the workload; their paths are editable like git.path",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "name", "content", "lastCommitDiff"],
+        "properties": {
+          "path": {"type": "string", "description": "empty for Secrets"},
+          "kind": {"enum": ["ConfigMap", "Secret"]},
+          "name": {"type": "string"},
+          "content": {"type": "string", "description": "at most 200 lines, redacted"},
+          "lastCommitDiff": {"type": "string", "description": "at most 100 lines"}
+        }
+      }
+    },
     "available": {
       "type": "object",
       "properties": {

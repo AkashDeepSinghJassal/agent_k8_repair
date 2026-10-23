@@ -145,7 +145,7 @@ class Env:
         self.settings = Settings(state_dir=tmp_path, **settings)
         (tmp_path / "evidence").mkdir()
         bundle = {"incident": NAME, "signature": "sig", "git": {"path": PATH}, "source": {"owner": "Deployment/api", "container": "api"},
-                  "failure": {"reason": "OOMKilled", "exitCode": 137, "restartCount": 3}, "events": []}
+                  "failure": {"reason": "OOMKilled", "exitCode": 137, "restartCount": 3, "message": "needs 1Gi or 512Mi"}, "events": []}
         (tmp_path / "evidence" / f"{NAME}-1.json").write_text(json.dumps(bundle))
         self.repo = FakeRepo({PATH: FIX.read_text()})
         self.analyze_fn = analyze_fn
@@ -359,7 +359,7 @@ def test_main_handlers_registered():
 
 
 def _bundle(name, marker):
-    return {"incident": name, "signature": "sig", "git": {"path": PATH}, "marker": marker,
+    return {"incident": name, "signature": "sig", "git": {"path": PATH}, "marker": marker, "note": "1Gi 512Mi",
             "source": {"owner": "Deployment/api", "container": "api"}, "events": []}
 
 
