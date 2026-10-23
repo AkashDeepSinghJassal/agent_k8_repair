@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -135,7 +136,7 @@ class ReviewState:
     cursor: dict = field(default_factory=dict)
 
 
-def poll_pr(repo: Any, number: int, cursor: dict | None = None) -> ReviewState:
+def poll_pr(repo: Any, number: int, cursor: dict | None = None, settle: float = 3.0) -> ReviewState:
     """Read the PR. ``cursor`` is ``{"review": id, "comment": id}``: feedback at or below it was already handled.
 
     Merged wins over everything. Changes requested = a new CHANGES_REQUESTED review, or a new human
@@ -146,6 +147,11 @@ def poll_pr(repo: Any, number: int, cursor: dict | None = None) -> ReviewState:
     if pr.merged:
         return ReviewState("merged", merge_sha=pr.merge_commit_sha, cursor=cur)
     if pr.state == "closed":
+        # GitHub can report closed before the merged flag is visible right after a merge: look again.
+        time.sleep(settle)
+        pr = repo.get_pull(number)
+        if pr.merged:
+            return ReviewState("merged", merge_sha=pr.merge_commit_sha, cursor=cur)
         return ReviewState("closed", cursor=cur)
     feedback: list[str] = []
     new = dict(cur)
