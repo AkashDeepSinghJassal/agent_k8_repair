@@ -42,6 +42,47 @@ def test_open_incident_409_returns_existing():
     )
 
 
+def test_open_incident_recurrence_after_close_gets_a_new_name():
+    """A closed (Healed) incident must not swallow the same failure when it comes back."""
+    api = MagicMock()
+    created = []
+
+    def create(group, version, ns, plural, body):
+        if body["metadata"]["name"] in ("ri-aaaaaaaaaa", "ri-aaaaaaaaaa-2"):
+            raise Conflict()
+        created.append(body["metadata"]["name"])
+        return body
+
+    api.create_namespaced_custom_object.side_effect = create
+    api.get_namespaced_custom_object.return_value = {"status": {"phase": "Healed"}}
+    out = open_incident(api, "demo", {"kind": "Pod", "name": "p"}, FP)
+    assert out["metadata"]["name"] == "ri-aaaaaaaaaa-3" and created == ["ri-aaaaaaaaaa-3"]
+
+
+def test_open_incident_open_one_is_still_returned_not_duplicated():
+    api = MagicMock()
+    api.create_namespaced_custom_object.side_effect = Conflict()
+    api.get_namespaced_custom_object.return_value = {"status": {"phase": "AwaitingReview"}}
+    assert open_incident(api, "demo", {}, FP) == {"status": {"phase": "AwaitingReview"}}
+    assert api.create_namespaced_custom_object.call_count == 1
+
+
+def test_stale_poll_handlers_stop_when_the_incident_moved_on():
+    from repair_operator.models import Phase
+
+    assert incidents.in_phase({"status": {"phase": "AwaitingReview"}}, Phase.AWAITING_REVIEW)
+    assert not incidents.in_phase({"status": {"phase": "Healed"}}, Phase.AWAITING_REVIEW)
+    assert not incidents.in_phase({}, Phase.VERIFYING)
+
+
+def test_platform_namespaces_are_never_incidents():
+    from repair_operator.detectors import pod_incident_specs
+
+    pod = {"metadata": {"name": "argocd-x"}, "status": {"containerStatuses": [
+        {"name": "c", "state": {"waiting": {"reason": "CrashLoopBackOff"}}}]}}
+    assert pod_incident_specs("argocd", pod) == []
+
+
 def test_open_incident_other_errors_propagate():
     api = MagicMock()
     api.create_namespaced_custom_object.side_effect = RuntimeError("boom")

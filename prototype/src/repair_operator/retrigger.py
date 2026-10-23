@@ -179,7 +179,18 @@ def evaluate_deployment(
     unready = [p["metadata"]["name"] + ": not Ready" for p in mine if not _pod_ready(p)]
     healthy = bool(mine) and not (restarted or problems or unready) and app_healthy(app)
     if not healthy:
-        if (now - start).total_seconds() > window + VERIFY_TIMEOUT_EXTRA_SECONDS:
+        elapsed = (now - start).total_seconds()
+        # Only pods created after the merge count: a pre-fix pod still failing is simply waiting to be replaced.
+        new_problems = [
+            m for p in mine
+            if (parse_ts((p.get("metadata") or {}).get("creationTimestamp")) or now) >= start and (m := _pod_problem(p))
+        ]
+        if new_problems and elapsed > window:
+            # A pod created after the merge that sits in ImagePullBackOff / CrashLoopBackOff a full window later
+            # means the fix did not hold (or the fault came back). Fail now, so the incident returns to Analyzing
+            # instead of absorbing new failures for window + timeout seconds.
+            return Verdict("failed", "verify_failed", [*restarted, *problems, *unready], restarts=current)
+        if elapsed > window + VERIFY_TIMEOUT_EXTRA_SECONDS:
             details = [*restarted, *problems, *unready] or [f"{len(mine)} pods, app healthy={app_healthy(app)}"]
             return Verdict("failed", "verify_timeout", details, restarts=current)
         return Verdict(

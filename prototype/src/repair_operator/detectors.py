@@ -22,6 +22,8 @@ IGNORE_LABEL = f"{GROUP}/ignore"
 INCIDENT_LABEL = f"{GROUP}/incident"
 
 POD_REASONS = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError"}
+# The loop repairs the demo workloads, not the platform it runs on (a restarting Argo CD pod is not an incident).
+IGNORED_NAMESPACES = frozenset({"argocd", "argo", "argo-events", "kube-system", "kube-public", "local-path-storage", "repair-system"})
 CLASS_HINT = {
     "CrashLoopBackOff": "CRASH_LOOP",
     "ImagePullBackOff": "IMAGE_PULL",
@@ -86,7 +88,7 @@ def resolve_owner(body: dict, apps_api: Any = None) -> str:
 
 def pod_incident_specs(namespace: str, body: dict, apps_api: Any = None) -> list[dict]:
     """One ``{source, fp, reason, classHint}`` per failing container of a pod."""
-    if is_ignored(body):
+    if is_ignored(body) or namespace in IGNORED_NAMESPACES:
         return []
     failures = pod_failures((body.get("status") or {}).get("containerStatuses"))
     if not failures:
@@ -118,7 +120,7 @@ def workflow_failed_node(body: dict) -> str:
 
 def workflow_incident_spec(namespace: str, body: dict) -> dict | None:
     """Incident spec for a failed workflow, or None when ignored / not failed."""
-    if is_ignored(body) or (body.get("status") or {}).get("phase") not in WORKFLOW_FAILED:
+    if is_ignored(body) or namespace in IGNORED_NAMESPACES or (body.get("status") or {}).get("phase") not in WORKFLOW_FAILED:
         return None
     name = body["metadata"]["name"]
     template = ((body.get("spec") or {}).get("workflowTemplateRef") or {}).get("name") or (
@@ -139,7 +141,7 @@ def workflow_incident_spec(namespace: str, body: dict) -> dict | None:
 
 def event_incident_spec(namespace: str, event: dict, pod_body: dict | None, apps_api: Any = None) -> dict | None:
     """Only Warning/FailedScheduling events on pods open an incident."""
-    if event.get("type") != "Warning" or event.get("reason") != "FailedScheduling":
+    if event.get("type") != "Warning" or event.get("reason") != "FailedScheduling" or namespace in IGNORED_NAMESPACES:
         return None
     obj = event.get("involvedObject") or {}
     if obj.get("kind") != "Pod" or (pod_body and is_ignored(pod_body)):

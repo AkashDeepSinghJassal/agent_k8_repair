@@ -131,10 +131,25 @@ def open_incident(
     try:
         return api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, body)
     except Exception as exc:  # kubernetes.client.ApiException
-        if getattr(exc, "status", None) == 409:
-            log.info("incident %s already exists", name)
-            return api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, name)
-        raise
+        if getattr(exc, "status", None) != 409:
+            raise
+    existing = api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, name)
+    if (existing.get("status") or {}).get("phase") not in {p.value for p in TERMINAL_PHASES}:
+        log.info("incident %s already exists", name)  # same failure, still being handled
+        return existing
+    # The same failure came back after its incident was closed (Healed, Failed, ...). The name is derived from
+    # the fingerprint, so it is taken: open a new incident ri-xxxx-2, -3, ... and keep the old one as history.
+    for n in range(2, 100):
+        body["metadata"]["name"] = f"{name}-{n}"
+        try:
+            created = api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, body)
+        except Exception as exc:
+            if getattr(exc, "status", None) == 409:
+                continue
+            raise
+        log.info("incident %s closed earlier; recurrence opened as %s", name, body["metadata"]["name"])
+        return created
+    raise RuntimeError(f"too many incidents for fingerprint {fp[:10]}")
 
 
 def set_phase(
@@ -179,6 +194,12 @@ def set_phase(
                     "fault": fields.get("fault") or status.get("fault"),
                 },
             )
+
+
+def in_phase(body: dict, phase: Phase) -> bool:
+    """False once the incident has left ``phase``: a retried poll handler must then stop, not retry forever
+    (Kopf keeps a handler's retry state across operator restarts)."""
+    return (body.get("status") or {}).get("phase") == phase.value
 
 
 def keep_polling(patch: dict, phase: Phase, delay: float) -> None:

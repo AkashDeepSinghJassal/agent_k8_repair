@@ -129,6 +129,27 @@ def test_deployment_waits_when_not_ready_and_times_out():
     assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=800)) == "failed"
 
 
+def test_error_state_after_a_full_window_fails_fast():
+    """A pod stuck in ImagePullBackOff after the merge (fault re-injected) must not wait window + 10 minutes."""
+    core = FakeCore([pod(T0 + timedelta(seconds=5), ready=False, waiting="ImagePullBackOff")])
+    c = FakeCustom(app=synced())
+    p: dict = {}
+    assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=60)) == "waiting"  # still inside the window
+    p = {}
+    assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=130)) == "failed"
+    assert p["status"]["phase"] == "Analyzing"
+    assert "verify_failed" in p["status"]["reviewFeedback"][-1] and "ImagePullBackOff" in p["status"]["reviewFeedback"][-1]
+
+
+def test_pre_fix_failing_pod_does_not_fail_verification_early():
+    """The old failing pod is still around while the rollout replaces it; only post-merge pods count."""
+    core = FakeCore([pod(T0 - timedelta(seconds=100), ready=False, waiting="ImagePullBackOff")])
+    c = FakeCustom(app=synced())
+    p: dict = {}
+    assert vh.verify_step(verifying(), p, core, c, 120, 3, T0 + timedelta(seconds=130)) == "waiting"
+    assert "phase" not in p.get("status", {})
+
+
 def test_failure_goes_back_to_analyzing_then_escalates():
     core = FakeCore([pod(T0 + timedelta(seconds=5), restarts=2, waiting="CrashLoopBackOff")])
     c = FakeCustom(app=synced())

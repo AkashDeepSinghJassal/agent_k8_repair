@@ -118,6 +118,18 @@ function toneFor(value) {
 }
 
 // ------------------------------------------------------------ services
+// Delete a Deployment's pods so they restart and re-read ConfigMaps/Secrets (changes no manifest).
+async function restartPods(ns, name, btn, errBox) {
+  const ok = await confirmDialog(`Restart pods of ${name}?`, [
+    h("p", {}, `Deletes the pods of ${ns}/${name}; Kubernetes recreates them straight away.`),
+    h("p", {}, "Use this after a ConfigMap fault (F4, F8): running pods keep their old environment until they restart."),
+  ], "Restart pods");
+  if (!ok) return;
+  const res = await runAction(btn, errBox, `Restart ${name} pods`, () => postJSON(`/api/services/${ns}/${name}/restart`));
+  if (res) logActivity(`Restarted ${res.restarted.length} pod(s) of ${ns}/${name}`);
+  refresh();
+}
+
 function renderServices(list) {
   const root = $("services");
   root.replaceChildren();
@@ -136,12 +148,22 @@ function serviceCard(s) {
   const svc = s.service
     ? `${s.service.type} ${s.service.ports.map((p) => (p.nodePort ? `${p.port}:${p.nodePort}` : p.port)).join(", ")}`
     : "none";
+  // "1/1 ready" can be the OLD pod: during a rolling update Kubernetes keeps it until the new pod is Ready,
+  // so a stuck rollout (new pod in ImagePullBackOff / CrashLoopBackOff) still shows full readiness.
+  const BAD = ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "Failed", "CreateContainerConfigError"];
+  const failing = s.pods.filter((p) => BAD.includes(p.phase));
+  const statusText = s.status === "green" ? "Healthy"
+    : failing.length && s.ready >= s.desired && s.ready > 0 ? "Rollout stuck: old pod serving, new pod failing"
+    : s.status === "amber" ? "Degraded" : "Down";
+  const restartErr = h("p", { class: "inline-error", role: "alert" });
+  const restartBtn = h("button", { type: "button", class: "btn" }, "Restart pods");
+  restartBtn.addEventListener("click", () => restartPods(s.namespace, s.name, restartBtn, restartErr));
   return h("article", { class: "card " + s.status, "aria-label": `${s.name}, status ${s.status}` },
     h("div", { class: "card-head" },
       h("span", { class: "card-title" }, s.name),
-      badge(`${s.ready}/${s.desired} ready`, s.status)),
+      h("span", {}, badge(`${s.ready}/${s.desired} ready`, s.status), failing.length ? badge(`${failing.length} failing: ${failing[0].phase}`, "red") : null)),
     h("dl", { class: "kv" },
-      h("dt", {}, "Status"), h("dd", {}, s.status === "green" ? "Healthy" : s.status === "amber" ? "Degraded" : "Down"),
+      h("dt", {}, "Status"), h("dd", {}, statusText),
       h("dt", {}, "Version"), h("dd", {}, s.version || "-"),
       h("dt", {}, "Image"), h("dd", { class: "mono" }, s.image || "-"),
       h("dt", {}, "Restarts"), h("dd", {}, restarts),
@@ -150,7 +172,9 @@ function serviceCard(s) {
     s.pods.length
       ? h("ul", { class: "pods", "aria-label": "Pods" }, s.pods.map((p) =>
           h("li", {}, h("span", { class: "mono" }, p.name), badge(p.phase, toneFor(p.phase) || (p.ready ? "green" : "amber")))))
-      : null);
+      : null,
+    h("div", { class: "card-actions" }, restartBtn),
+    restartErr);
 }
 
 // ------------------------------------------------------------ tables
@@ -215,8 +239,19 @@ function faultCard(f) {
       h("dt", {}, "Expected outcome"), h("dd", {}, f.expected_outcome),
       h("dt", {}, "Correct fix"), h("dd", {}, f.correct_fix),
       h("dt", {}, "Incident"), h("dd", {}, f.incident || "-")),
-    h("div", { class: "card-actions" }, mk("Inject", "inject"), mk("Revert", "revert")),
+    h("div", { class: "card-actions" }, mk("Inject", "inject"), mk("Revert", "revert"), restartShortcut(f)),
+    needsRestart(f) ? h("p", { class: "muted" }, "ConfigMap-only fault: after Argo CD syncs it, click Restart api pods to trigger the crash.") : null,
     err);
+}
+
+// F4 and F8 only change a ConfigMap, so the running api pod does not crash until it restarts.
+const needsRestart = (f) => ["F4", "F8"].includes(f.id);
+function restartShortcut(f) {
+  if (!needsRestart(f)) return null;
+  const err = h("span", { class: "inline-error", role: "alert" });
+  const b = h("button", { type: "button", class: "btn" }, "Restart api pods");
+  b.addEventListener("click", () => restartPods(f.namespace, "api", b, err));
+  return b;
 }
 
 async function refreshFaults() {

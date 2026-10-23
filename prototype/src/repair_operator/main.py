@@ -6,6 +6,7 @@ Handlers are thin; the logic lives in plain functions so it is unit-testable.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime
 
 import kopf
@@ -23,7 +24,8 @@ from .repair_flow import analyze_step, propose_step, review_step
 
 log = logging.getLogger(__name__)
 
-PR_POLL_SECONDS = 30  # how often an open PR is polled for merge / review (issue #10)
+# How often an open PR is polled for merge / review (issue #10). Override with REPAIR_PR_POLL_SECONDS.
+PR_POLL_SECONDS = max(5, int(os.environ.get("REPAIR_PR_POLL_SECONDS", "30")))
 
 
 def debounce_remaining(detected_iso: str | None, debounce: int, now: datetime | None = None) -> float:
@@ -102,5 +104,7 @@ def on_review_poll(body, patch, **_):
 
     Polls by retrying (not ``@kopf.timer``, which would add a finalizer to the incident).
     """
+    if not incidents.in_phase(body, Phase.AWAITING_REVIEW):
+        return  # stale retry of a finished poll
     review_step(body, patch)
     incidents.keep_polling(patch, Phase.AWAITING_REVIEW, PR_POLL_SECONDS)

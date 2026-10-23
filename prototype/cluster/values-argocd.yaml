@@ -7,6 +7,12 @@ dex:
 notifications:
   enabled: false
 
+# Demo polling: Argo CD re-reads git every 5 s (+ up to 5 s jitter) instead of 120 s (+ 60 s).
+configs:
+  cm:
+    "timeout.reconciliation": 5s
+    "timeout.reconciliation.jitter": 5s
+
 # The chart renders the ApplicationSet controller unconditionally (no enabled flag
 # in 10.10.5); replicas 0 keeps it off the cluster.
 applicationSet:

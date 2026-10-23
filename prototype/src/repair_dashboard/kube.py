@@ -27,6 +27,8 @@ class KubeReader(Protocol):
     def incident(self, ns: str, name: str) -> dict | None: ...
     def set_approved_by(self, ns: str, name: str, who: str) -> None: ...
     def submit_workflow(self, ns: str, template: str) -> str: ...
+    def restart_pods(self, ns: str, deployment: str) -> list[str]: ...
+    def refresh_argocd_app(self, name: str) -> None: ...
 
 
 # ---------------------------------------------------------------- parsing
@@ -283,6 +285,33 @@ class KubeClientReader:
         res = self._call(api.create_namespaced_custom_object, "argoproj.io", "v1alpha1", ns, "workflows", body)
         return res["metadata"]["name"]
 
+    def refresh_argocd_app(self, name):
+        """Annotate an Argo CD Application so it re-reads git immediately (same as the UI's hard refresh)."""
+        api = self._init().CustomObjectsApi()
+        self._call(
+            api.patch_namespaced_custom_object,
+            "argoproj.io", "v1alpha1", "argocd", "applications", name,
+            {"metadata": {"annotations": {"argocd.argoproj.io/refresh": "hard"}}},
+        )
+
+    def restart_pods(self, ns, deployment):
+        """Delete a Deployment's pods; its ReplicaSet recreates them, so they re-read ConfigMaps and Secrets.
+
+        Nothing in the Deployment spec changes, so Argo CD sees no drift (unlike a restartedAt annotation,
+        which self-heal would revert).
+        """
+        client = self._init()
+        apps, core = client.AppsV1Api(), client.CoreV1Api()
+        dep = self._call(apps.read_namespaced_deployment, deployment, ns)
+        match = _g(dep, "spec", "selector", "matchLabels", default={}) or {}
+        if not match:
+            raise KubeUnavailable(f"deployment {ns}/{deployment} has no label selector")
+        selector = ",".join(f"{k}={v}" for k, v in match.items())
+        names = [p["metadata"]["name"] for p in self._call(core.list_namespaced_pod, ns, label_selector=selector).get("items", [])]
+        for name in names:
+            self._call(core.delete_namespaced_pod, name, ns)
+        return names
+
 
 class FakeKubeReader:
     """In-memory reader for tests. Set ``error`` to simulate an unreachable cluster."""
@@ -295,6 +324,8 @@ class FakeKubeReader:
         self.error = error
         self.approved: list[tuple[str, str, str]] = []
         self.submitted: list[tuple[str, str]] = []
+        self.restarted: list[tuple[str, str]] = []
+        self.refreshed: list[str] = []
 
     def _check(self):
         if self.error:
@@ -332,3 +363,15 @@ class FakeKubeReader:
         self._check()
         self.submitted.append((ns, template))
         return f"{template}-fake{len(self.submitted)}"
+
+    def refresh_argocd_app(self, name):
+        self._check()
+        self.refreshed.append(name)
+
+    def restart_pods(self, ns, deployment):
+        self._check()
+        self.restarted.append((ns, deployment))
+        for s in self._services:
+            if s["namespace"] == ns and s["name"] == deployment:
+                return [p["name"] for p in s.get("pods", [])]
+        return []

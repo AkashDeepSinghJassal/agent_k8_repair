@@ -49,6 +49,14 @@ case "$REPAIR_LLM_PROVIDER" in
   *) die "unknown REPAIR_LLM_PROVIDER '$REPAIR_LLM_PROVIDER' (use groq or anthropic)" ;;
 esac
 
+# Demo timings: everything at 5 s (override by exporting these before running). The operator's own defaults
+# are slower (debounce 60 s, PR poll 30 s, verify window 120 s, cooldown 600 s). A 5 s verify window only
+# proves the pods are Ready and stable for 5 s; use a longer window for a real evaluation.
+export REPAIR_DEBOUNCE_SECONDS="${REPAIR_DEBOUNCE_SECONDS:-5}"
+export REPAIR_PR_POLL_SECONDS="${REPAIR_PR_POLL_SECONDS:-5}"
+export REPAIR_VERIFY_WINDOW_SECONDS="${REPAIR_VERIFY_WINDOW_SECONDS:-5}"
+export REPAIR_COOLDOWN_SECONDS="${REPAIR_COOLDOWN_SECONDS:-5}"
+
 start() { # name, command...
   local name="$1"
   shift

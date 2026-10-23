@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -128,6 +129,15 @@ def _linked_incident(entry: dict, since: str | None, reader: KubeReader) -> str 
 
 def _fault_view(entry: dict, backend: FaultBackend, reader: KubeReader) -> dict:
     since = backend.state.injected.get(entry["id"])
+    if since is not None and entry.get("target_file"):
+        # The mark is only a note from when Inject was clicked. If the repo no longer carries the fault
+        # (the repair loop's PR was merged, or someone fixed it by hand) the fault is gone: drop the mark.
+        try:
+            if not _is_injected_in_git(entry, backend):
+                backend.state.clear(entry["id"])
+                since = None
+        except Exception as exc:  # noqa: BLE001 - GitHub unreachable or no token: keep showing the mark
+            logging.getLogger(__name__).debug("fault %s: git check skipped: %s", entry["id"], exc)
     keys = ("id", "title", "description", "namespace", "kind", "expected_class", "expected_outcome", "correct_fix")
     view = {k: entry[k] for k in keys}
     view.update(injected=since is not None, injectedAt=since, incident=_linked_incident(entry, since, reader))
@@ -159,8 +169,33 @@ def list_faults(backend: FaultBackend = Backend, reader: KubeReader = Reader):
         raise _fault_error(exc) from exc
 
 
+def _argocd_app_for(entry: dict) -> str | None:
+    """The Argo CD Application that syncs a fault's target file (None for cluster-only faults)."""
+    path = entry.get("target_file") or ""
+    if path.startswith("deploy/demo-b/"):
+        return "demo-app-b"
+    if path.startswith("deploy/demo/"):
+        return "demo-app"
+    if path.startswith("workflows/"):
+        return "demo-workflows"
+    return None
+
+
+def _refresh_argocd(entry: dict, reader: KubeReader) -> bool:
+    """Ask Argo CD to re-read git now instead of waiting for its poll (about 2 minutes). Best effort."""
+    app_name = _argocd_app_for(entry)
+    if app_name is None:
+        return False
+    try:
+        reader.refresh_argocd_app(app_name)
+        return True
+    except Exception as exc:  # noqa: BLE001 - the commit succeeded; Argo CD will still pick it up by polling
+        logging.getLogger(__name__).warning("argocd refresh of %s failed: %s", app_name, exc)
+        return False
+
+
 @app.post("/api/faults/{fault_id}/inject")
-def inject_fault(fault_id: str, backend: FaultBackend = Backend):
+def inject_fault(fault_id: str, backend: FaultBackend = Backend, reader: KubeReader = Reader):
     try:
         entry = faults.get_fault(fault_id)
         with backend.state.lock:
@@ -170,13 +205,14 @@ def inject_fault(fault_id: str, backend: FaultBackend = Backend):
             elif _is_injected_in_git(entry, backend):
                 return {"id": fault_id, "status": "already-injected", "injectedAt": backend.state.mark(fault_id)}
             result = faults.inject(fault_id, git=backend.git, kubectl=backend.kubectl)
-            return {**result, "status": "injected", "injectedAt": backend.state.mark(fault_id)}
+            refreshed = _refresh_argocd(entry, reader)
+            return {**result, "status": "injected", "injectedAt": backend.state.mark(fault_id), "argocdRefreshed": refreshed}
     except faults.FaultError as exc:
         raise _fault_error(exc) from exc
 
 
 @app.post("/api/faults/{fault_id}/revert")
-def revert_fault(fault_id: str, backend: FaultBackend = Backend):
+def revert_fault(fault_id: str, backend: FaultBackend = Backend, reader: KubeReader = Reader):
     try:
         entry = faults.get_fault(fault_id)
         with backend.state.lock:
@@ -185,7 +221,8 @@ def revert_fault(fault_id: str, backend: FaultBackend = Backend):
                 return {"id": fault_id, "status": "not-injected"}
             result = faults.revert(fault_id, git=backend.git, kubectl=backend.kubectl)
             backend.state.clear(fault_id)
-            return {**result, "status": "reverted"}
+            refreshed = _refresh_argocd(entry, reader)
+            return {**result, "status": "reverted", "argocdRefreshed": refreshed}
     except faults.FaultError as exc:
         raise _fault_error(exc) from exc
 
@@ -246,6 +283,19 @@ def rerun_pipeline(reader: KubeReader = Reader):
         "namespace": RERUN_NAMESPACE,
         "template": RELEASE_TEMPLATE,
     }
+
+
+@app.post("/api/services/{ns}/{name}/restart")
+def restart_service_pods(ns: str, name: str, reader: KubeReader = Reader):
+    """Restart a service's pods (delete them; the ReplicaSet recreates them).
+
+    Needed after a ConfigMap-only change such as F4: running pods keep the old environment until they restart.
+    """
+    if ns not in DEFAULT_NAMESPACES:
+        raise HTTPException(404, f"namespace {ns!r} is not managed by the demo")
+    if not any(s["namespace"] == ns and s["name"] == name for s in reader.services([ns])):
+        raise HTTPException(404, f"service {ns}/{name} not found")
+    return {"namespace": ns, "name": name, "restarted": reader.restart_pods(ns, name)}
 
 
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")

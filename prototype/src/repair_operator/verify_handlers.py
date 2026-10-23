@@ -26,6 +26,7 @@ from .models import TERMINAL_PHASES, Phase
 log = logging.getLogger(__name__)
 
 SYNC_POLL_SECONDS = 5
+VERIFY_TICK_SECONDS = 5.0
 
 
 def merge_sha(status: dict) -> str | None:
@@ -194,6 +195,8 @@ def _clients() -> tuple[Any, Any, Any]:
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.MERGED.value)
 def on_merged_sync(body, patch, **_):
+    if not incidents.in_phase(body, Phase.MERGED):
+        return  # stale retry
     _, custom_api, _ = _clients()
     delay = merged_step(body, patch, custom_api)
     if delay > 0:
@@ -203,9 +206,11 @@ def on_merged_sync(body, patch, **_):
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.VERIFYING.value)
 def verify_tick(body, patch, **_):
     """Polls by retrying (not ``@kopf.timer``, which would add a finalizer to the incident)."""
+    if not incidents.in_phase(body, Phase.VERIFYING):
+        return  # stale retry of a finished verification
     core_api, custom_api, _ = _clients()
     verify_step(body, patch, core_api, custom_api)
-    incidents.keep_polling(patch, Phase.VERIFYING, 10.0)
+    incidents.keep_polling(patch, Phase.VERIFYING, VERIFY_TICK_SECONDS)
 
 
 def _on_closed(body, patch, **_):

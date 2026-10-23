@@ -198,6 +198,34 @@ def test_rerun_pipeline(env):
     assert env["reader"].submitted == [("demo", "release-pipeline")]
 
 
+def test_inject_and_revert_refresh_argocd(env):
+    c = env["client"]
+    assert c.post("/api/faults/F1/inject").json()["argocdRefreshed"] is True
+    assert env["reader"].refreshed == ["demo-app"]
+    assert c.post("/api/faults/F1/revert").json()["argocdRefreshed"] is True
+    assert env["reader"].refreshed == ["demo-app", "demo-app"]
+
+
+def test_inject_still_succeeds_when_argocd_refresh_fails(env):
+    env["reader"].error = "down"  # refresh raises KubeUnavailable; the commit must not be affected
+    r = env["client"].post("/api/faults/F1/inject")
+    assert r.status_code == 200 and r.json()["status"] == "injected" and r.json()["argocdRefreshed"] is False
+
+
+def test_restart_service_pods(env):
+    env["reader"]._services = [
+        {"namespace": "demo", "name": "api", "pods": [{"name": "api-abc"}, {"name": "api-def"}]},
+    ]
+    c = env["client"]
+    r = c.post("/api/services/demo/api/restart")
+    assert r.status_code == 200 and r.json()["restarted"] == ["api-abc", "api-def"]
+    assert env["reader"].restarted == [("demo", "api")]
+    assert c.post("/api/services/demo/nope/restart").status_code == 404
+    assert c.post("/api/services/kube-system/api/restart").status_code == 404
+    env["reader"].error = "down"
+    assert c.post("/api/services/demo/api/restart").status_code == 503
+
+
 def test_rerun_without_cluster_is_503(env):
     env["reader"].error = "down"
     assert env["client"].post("/api/pipelines/rerun").status_code == 503
