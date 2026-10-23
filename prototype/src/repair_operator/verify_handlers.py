@@ -45,8 +45,9 @@ def merged_step(body: dict, patch: dict, custom_api: Any, now: datetime | None =
         _close(patch, Phase.FAILED, "missing_merge_sha", now, body)
         return 0.0
     try:
-        retrigger.refresh_app(custom_api, ns)
-        app = retrigger.get_app(custom_api, ns)
+        wf = retrigger.is_workflow(body)
+        retrigger.refresh_app(custom_api, ns, wf)
+        app = retrigger.get_app(custom_api, ns, wf)
     except Exception as exc:  # noqa: BLE001  (Argo CD unreachable: keep trying until the timeout)
         log.warning("argo cd lookup failed: %s", exc)
         app = {}
