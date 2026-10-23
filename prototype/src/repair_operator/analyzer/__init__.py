@@ -132,7 +132,7 @@ def _from_llm(out: LlmProposal, bundle: dict, file: str | None) -> Proposal:
                 **{"class": cls}, fixable_in_git=True, file=file, edits=edits, template=out.template,
                 params=params, needs_remeasure=out.needs_remeasure, tier=2, source="llm", **base,
             )
-    elif cls in OPEN_ENDED and out.edits and not out.template:
+    elif out.edits and not out.template:  # edit-based fix for any class (e.g. a missing ConfigMap key)
         return Proposal(
             **{"class": cls}, fixable_in_git=True, file=out.file or file, edits=out.edits,
             needs_remeasure=out.needs_remeasure, tier=3, source="llm", **base,

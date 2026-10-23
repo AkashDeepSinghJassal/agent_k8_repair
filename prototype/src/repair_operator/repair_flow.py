@@ -264,6 +264,8 @@ def review_step(
     """AwaitingReview poll: merged -> Merged, changes requested -> Analyzing, closed -> Failed."""
     settings = settings or get_settings()
     status = body.get("status") or {}
+    if status.get("phase") not in (None, Phase.AWAITING_REVIEW.value):
+        return  # a delayed poll that fires after the phase already moved on must not regress it
     number = _pr_number(status.get("pullRequest"))
     if number is None:
         return
