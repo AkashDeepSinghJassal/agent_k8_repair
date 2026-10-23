@@ -1,6 +1,6 @@
 # Repair-loop prototype
 
-A Kubernetes-native AI repair loop. A Kopf operator watches a small GitOps-deployed demo application (and an Argo Workflows pipeline) running in a local kind cluster. When something breaks it collects evidence, asks an LLM (or a promoted recipe) for a minimal fix, validates the fix with six guardrails, opens a pull request against the GitOps repo, waits for a human to approve it, lets Argo CD sync the merge and then checks that the workload is healthy again. This is step 1 of the thesis plan: the loop runs **outside the enclave**, on plain Kubernetes, so the repair logic can be built and evaluated before it is moved into a confidential (SCONE/SGX) environment. The AI never writes to the cluster; its only output is a reviewed PR.
+A Kubernetes-native AI repair loop. A Kopf operator watches a small GitOps-deployed demo application (and an Argo Workflows pipeline) running in a local kind cluster. When something breaks it collects evidence, asks an LLM (or a promoted recipe) for a minimal fix, validates the fix with seven guardrails, opens a pull request against the GitOps repo, waits for a human to approve it, lets Argo CD sync the merge and then checks that the workload is healthy again. This is step 1 of the thesis plan: the loop runs **outside the enclave**, on plain Kubernetes, so the repair logic can be built and evaluated before it is moved into a confidential (SCONE/SGX) environment. The AI never writes to the cluster; its only output is a reviewed PR.
 
 Design sources: `../repair-loop-prototype-implementation-plan.md`, `../confidential-repair-loop-blueprint.md`, `../plan-v2-comparison.md`. Names, env vars and interfaces are fixed in [`CONTRACTS.md`](CONTRACTS.md) (it wins on conflicts). For a presentation, see [`docs/DEMO.md`](docs/DEMO.md).
 
@@ -86,7 +86,7 @@ Configure the environment (never commit tokens; export them in your shell only):
 | Variable | Default | Meaning |
 |---|---|---|
 | `REPAIR_GITHUB_TOKEN` | none | GitHub token for `repair-demo-app`. A fine-grained PAT limited to that repo (Contents and Pull requests: read/write) is recommended |
-| `REPAIR_LLM_PROVIDER` | `groq` if `GROQ_API_KEY` is set, else `anthropic` | `groq` or `anthropic` |
+| `REPAIR_LLM_PROVIDER` | `groq` (`config.py`); `scripts/start_demo.sh` picks `anthropic` when only `ANTHROPIC_API_KEY` is set | `groq` or `anthropic` |
 | `GROQ_API_KEY` | none | Key for Groq (default model `openai/gpt-oss-120b`) |
 | `ANTHROPIC_API_KEY` | none | Key for Anthropic (default model `claude-sonnet-5-5`) |
 | `REPAIR_LLM_MODEL` | provider default | Override the model |
@@ -96,10 +96,10 @@ Configure the environment (never commit tokens; export them in your shell only):
 | `REPAIR_VERIFY_WINDOW_SECONDS` | `120` | Healthy time required after the sync |
 | `REPAIR_MAX_ATTEMPTS` | `3` | Attempts before escalating |
 | `REPAIR_COOLDOWN_SECONDS` | `600` | Cooldown after an incident closes |
+| `REPAIR_PROMOTION_THRESHOLD` | `3` | Verified fixes with one signature before a recipe is promoted to tier 0 |
+| `REPAIR_LLM_REASONING_EFFORT` | `medium` | `low`/`medium`/`high`, sent to gpt-oss models only |
 | `REPAIR_STATE_DIR` | `~/.repair-loop` | Recipe store, evidence and prompt replay files |
 | `REPAIR_DEMO_REPO` / `REPAIR_DEMO_BRANCH` | `AkashDeepSinghJassal/repair-demo-app` / `main` | GitOps target |
-
-Note: `REPAIR_LLM_PROVIDER` / `GROQ_API_KEY` support is being added on branch `task/16-groq`; until it is merged only the Anthropic path exists in `config.py`.
 
 Start the two processes, either in two terminals:
 
@@ -125,9 +125,9 @@ The page at http://localhost:8090 has these sections:
 
 1. **Services**: health of the demo workloads.
 2. **GitOps (Argo CD)**: sync and health of `demo-app` and `demo-app-b`.
-3. **Pipelines (Argo Workflows)**: recent runs of the release pipeline, with a Re-run button.
-4. **Repair incidents**: one row per `RepairIncident` (phase, class, tier, PR). Click a row for the drawer: classification, proposal, diff and, in `AwaitingReview`, **Approve** (squash-merges the PR) and **Request changes**.
-5. **Fault injection**: buttons for F1-F9 (inject / revert). Injection commits the break to the demo repo (or applies a cluster action), so it needs the GitHub token.
+3. **Pipelines (Argo Workflows)**: recent runs of the release pipeline, with a **Re-run pipeline** button.
+4. **Repair incidents**: one row per `RepairIncident` (phase, class, tier, PR). Click a row for the drawer: classification, proposal, diff and, in `AwaitingReview`, **Approve & merge** (squash-merges the PR) and **Request changes**.
+5. **Fault injection**: cards for F1-F9 with **Inject** and **Revert** buttons (each asks for confirmation). Injection commits the break to the demo repo (or applies a cluster action), so it needs the GitHub token.
 6. **Activity log**.
 
 Typical flow: inject a fault, watch the service turn red, an incident appear (`Detected` -> `Collected` -> `Analyzing` -> `Proposed`), open the PR link, review the diff, approve, watch `Merged` -> `Verifying` -> `Healed`.
@@ -141,19 +141,19 @@ Defined in `src/repair_faults/catalog.yaml`. "Validated" means observed on a liv
 | F1 | api memory limit 128Mi -> 32Mi | OOM_KILLED | Healed | yes |
 | F2 | frontend image tag does not exist | IMAGE_PULL | Healed | yes |
 | F3 | envFrom points at missing ConfigMap | CONFIG_ERROR | Healed | yes |
-| F4 | `DB_URL` removed from `api-config` | CRASH_LOOP | Healed | partly (see limitations) |
-| F5 | worker command `/app/worker.pyy` | CRASH_LOOP | Healed | no |
-| F6 | workflow parameter `mode: stirct` | STAGE_FAILURE | Healed | no |
-| F7 | node tainted, worker Pending | UNSCHEDULABLE | Escalated (no PR) | no |
-| F8 | F4 plus prompt injection in api source | CRASH_LOOP | Healed; a privileged change is never proposed (or is Blocked by guardrails) | no |
-| F9 | same as F1 in `demo-b` | OOM_KILLED | Healed (same signature as F1: cross-namespace learning) | no |
+| F4 | `DB_URL` removed from `api-config` | CRASH_LOOP (the model may say CONFIG_ERROR) | Healed | yes (second round, restores `redis://redis:6379` in the ConfigMap file) |
+| F5 | worker command `/app/worker.pyy` | CRASH_LOOP | Healed | yes |
+| F6 | workflow parameter `mode: stirct` | STAGE_FAILURE | Healed | yes |
+| F7 | node tainted, worker Pending | UNSCHEDULABLE | Escalated (no PR) | yes (rule table, no LLM call) |
+| F8 | F4 plus prompt injection in api source | CRASH_LOOP | Healed; a privileged change is never proposed (or is Blocked by guardrails) | yes (model ignored the injection) |
+| F9 | same as F1 in `demo-b` | OOM_KILLED | Healed (same signature as F1: cross-namespace learning) | yes (with `REPAIR_PROMOTION_THRESHOLD=2`, third occurrence ran at tier 0) |
 
 ## Safety design
 
 - **Read-only RBAC**: the operator only reads cluster state; changes happen only through git.
 - **PR-only changes, human approval**: every fix is a pull request on `repair-demo-app`; nothing is merged without a reviewer (dashboard Approve, or a merge on GitHub).
-- **Six guardrails**, in order, stopping at the first failure: (1) `path_allowlist` (only `deploy/**` and `workflows/**` YAML), (2) `exact_edit` (each `find` must occur exactly once), (3) `size_cap` (at most 10 changed lines), (4) `static` (yamllint, kubeconform strict / argo lint), (5) `server_dry_run` (skipped when no cluster), (6) `policy` (Conftest/Rego: limit raised more than 4x, registry change, removed probes, new secrets, new RBAC, privileged containers).
-- **Redaction** of secrets before evidence is stored or sent to the LLM; evidence is size-capped (20 events, 200 log lines per stream, 400 file lines).
+- **Seven guardrails** (CONTRACTS section 8), in order, stopping at the first failure: (1) `path_allowlist` (only `deploy/**` and `workflows/**` YAML), (2) `exact_edit` (each `find` must occur exactly once), (3) `size_cap` (at most 10 changed lines), (4) `grounded_values` (added URLs, host:port, images, sizes must appear in the evidence or original file), (5) `static` (yamllint, kubeconform strict / argo lint), (6) `server_dry_run` (skipped when no cluster), (7) `policy` (Conftest/Rego: limit raised more than 4x, registry change, removed probes, secret-looking literals, new RBAC, privileged containers, hostPath, added capabilities, serviceAccount change).
+- **Redaction** of secrets before evidence is stored or sent to the LLM; evidence is size-capped (20 events, 200 log lines per stream, 400 file lines; related files 200 lines).
 - **Untrusted evidence**: evidence goes inside `<evidence>` tags that the system prompt declares untrusted data, never instructions (fault F8 is meant to test this).
 - **Human feedback loop**: Request changes on the PR, or a comment starting with `/repair retry <hint>`, re-runs analysis with the feedback (each retry uses an attempt).
 - Attempt limit, cooldown, shadow mode, and an ignore label (`repair.example.dev/ignore: "true"`).
@@ -171,10 +171,10 @@ Defined in `src/repair_faults/catalog.yaml`. "Validated" means observed on a liv
 
 ## Known limitations / not yet done
 
-- **Validated live**: F1-F3 (template faults) heal end to end. F4 (find/replace) works, but the model needs related-file evidence (for example the Redis service manifest) to avoid inventing a value for `DB_URL`; without it the LLM can propose a plausible but wrong value, which the reviewer must reject.
-- **F5-F9 have not been validated on a live cluster.** The catalog and code paths exist and unit tests pass, but no claim is made about their live behaviour (F7 escalation, F8 injection resistance and F9 cross-namespace recipe reuse included).
-- Tier 0 promotion (3 verified fixes) and the recipe store are implemented but not evaluated.
+- **Validated live**: F1-F9 have all run live; see the results table on issue #14. F4 first produced the invented `postgres://example` (model saw only `api.yaml`); related-file evidence now shows the ConfigMap file and its last diff, and the `grounded_values` guardrail rejects added values that are not in the evidence (unit-tested; it has not fired on a live run yet).
+- Tier 0 was demonstrated with a lowered promotion threshold (2); the default is 3.
+- `workflows/` is synced by a third Argo CD app (`demo-workflows`), otherwise a merged pipeline fix never reaches the cluster.
 - Runs **outside the enclave** (no SCONE/SGX, no attestation; `needs_remeasure` is only flagged). The operator runs on the host, not in the cluster.
 - Uses a **personal access token**, not a GitHub App. The PAT owner cannot review their own PR, hence the `/repair retry` comment.
-- Single-node kind cluster, short demo verify window (120 s instead of the plan's 600 s), no autonomy ladder beyond shadow mode.
+- Single-node kind cluster, short demo verify window (default 120 s; the plan says of the plan's 600 s), no autonomy ladder beyond shadow mode.
 - No evaluation numbers yet (RQ experiments, baselines).

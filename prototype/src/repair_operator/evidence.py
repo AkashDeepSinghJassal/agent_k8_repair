@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
+import yaml
 
 from . import incidents
 from .config import get_settings
@@ -31,6 +32,10 @@ MAX_EVENTS = 20
 MAX_LOG_LINES = 200
 MAX_FILE_LINES = 400
 MAX_ERROR_LINES = 20
+MAX_RELATED = 3
+MAX_RELATED_LINES = 200
+MAX_RELATED_DIFF_LINES = 100
+MAX_SCAN_FILES = 40
 MAX_AVAILABLE = 100
 ERROR_RE = re.compile(r"(?i)(error|fail|fatal|exception|panic|not found|denied|refused|exit)")
 
@@ -209,6 +214,127 @@ def _workflow_section(core_api: Any, custom_api: Any, ns: str, source: dict) -> 
 # --- git ----------------------------------------------------------------------
 
 
+def _last_diff(github: Any, path: str, branch: str) -> tuple[str, str | None]:
+    """(unified diff of the last commit touching ``path``, that commit's sha)."""
+    try:
+        commit = github.get_commits(path=path, sha=branch)[0]
+        parts = [
+            f"--- a/{path}\n+++ b/{path}\n{f.patch}"
+            for f in commit.files
+            if f.filename == path and getattr(f, "patch", None)
+        ]
+        return "\n".join(parts), commit.sha
+    except Exception as exc:  # noqa: BLE001
+        log.info("no commit diff for %s: %s", path, exc)
+        return "", None
+
+
+def _refs(pod_spec: dict) -> list[tuple[str, str]]:
+    """(kind, name) of ConfigMaps/Secrets a pod spec references, in order, deduplicated."""
+    out: dict[tuple[str, str], None] = {}
+
+    def add(kind: str, name: str | None) -> None:
+        if name:
+            out[(kind, name)] = None
+
+    for c in [*(pod_spec.get("containers") or []), *(pod_spec.get("initContainers") or [])]:
+        for ef in c.get("envFrom") or []:
+            add("ConfigMap", (ef.get("configMapRef") or {}).get("name"))
+            add("Secret", (ef.get("secretRef") or {}).get("name"))
+        for e in c.get("env") or []:
+            vf = e.get("valueFrom") or {}
+            add("ConfigMap", (vf.get("configMapKeyRef") or {}).get("name"))
+            add("Secret", (vf.get("secretKeyRef") or {}).get("name"))
+    for v in pod_spec.get("volumes") or []:
+        add("ConfigMap", (v.get("configMap") or {}).get("name"))
+        add("Secret", (v.get("secret") or {}).get("secretName"))
+        for src in (v.get("projected") or {}).get("sources") or []:
+            add("ConfigMap", (src.get("configMap") or {}).get("name"))
+            add("Secret", (src.get("secret") or {}).get("name"))
+    return list(out)
+
+
+def _find_configmap_files(github: Any, branch: str, names: set[str]) -> dict[str, tuple[str, str]]:
+    """name -> (path, text) of the first deploy/**/*.yaml defining ``kind: ConfigMap`` with that name."""
+    found: dict[str, tuple[str, str]] = {}
+    try:
+        tree = github.get_git_tree(branch, recursive=True).tree
+        paths = [t.path for t in tree if t.path.startswith("deploy/") and t.path.endswith((".yaml", ".yml"))]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cannot list repo tree: %s", exc)
+        return found
+    for path in paths[:MAX_SCAN_FILES]:
+        if names <= set(found):
+            break
+        try:
+            text = github.get_contents(path, ref=branch).decoded_content.decode("utf-8", "replace")
+            docs = list(yaml.safe_load_all(text))
+        except Exception as exc:  # noqa: BLE001
+            log.info("skipping %s: %s", path, exc)
+            continue
+        for d in docs:
+            if isinstance(d, dict) and d.get("kind") == "ConfigMap":
+                n = (d.get("metadata") or {}).get("name")
+                if n in names and n not in found:
+                    found[n] = (path, text)
+    return found
+
+
+def _related_files(github: Any, pod_spec: dict, branch: str, git_path: str | None) -> list[dict]:
+    """Source files of the ConfigMaps a workload references (max 3); Secrets: name only, never content."""
+    refs = _refs(pod_spec)
+    if github is None or not refs:
+        return []
+    cms = {n for k, n in refs if k == "ConfigMap"}
+    files = _find_configmap_files(github, branch, cms) if cms else {}
+    out: list[dict] = []
+    seen_paths: set[str] = set()
+    for kind, name in refs:
+        if len(out) >= MAX_RELATED:
+            break
+        if kind == "Secret":
+            out.append({"path": "", "kind": "Secret", "name": name,
+                        "content": "(Secret: contents are never included)", "lastCommitDiff": ""})
+            continue
+        if name not in files:
+            continue
+        path, text = files[name]
+        if path == git_path or path in seen_paths:
+            continue
+        seen_paths.add(path)
+        diff, _ = _last_diff(github, path, branch)
+        out.append({
+            "path": path, "kind": "ConfigMap", "name": name,
+            "content": redact(_head_text(text, MAX_RELATED_LINES)),
+            "lastCommitDiff": redact(_head_text(diff, MAX_RELATED_DIFF_LINES)),
+        })
+    return out
+
+
+def allowed_files(bundle: dict) -> list[str]:
+    """Files a proposal may edit: git.path plus related_files paths (Secrets have no path)."""
+    paths = [(bundle.get("git") or {}).get("path"), *(r.get("path") for r in bundle.get("related_files") or [])]
+    return [p for p in dict.fromkeys(paths) if p]
+
+
+def evidence_text(bundle: dict) -> str:
+    """All string values of the bundle joined, for verbatim grounding checks."""
+    out: list[str] = []
+
+    def walk(o: Any) -> None:
+        if isinstance(o, str):
+            out.append(o)
+        elif isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(bundle)
+    return "\n".join(out)
+
+
 def _git_section(github: Any, path: str | None, branch: str) -> dict | None:
     if github is None or not path:
         return None
@@ -219,18 +345,8 @@ def _git_section(github: Any, path: str | None, branch: str) -> dict | None:
     except Exception as exc:  # noqa: BLE001
         log.warning("cannot read %s from GitHub: %s", path, exc)
         return None
-    diff = ""
-    try:
-        commit = github.get_commits(path=path, sha=branch)[0]
-        parts = [
-            f"--- a/{path}\n+++ b/{path}\n{f.patch}"
-            for f in commit.files
-            if f.filename == path and getattr(f, "patch", None)
-        ]
-        diff = "\n".join(parts)
-        sha = commit.sha or sha
-    except Exception as exc:  # noqa: BLE001
-        log.info("no commit diff for %s: %s", path, exc)
+    diff, csha = _last_diff(github, path, branch)
+    sha = csha or sha
     return {
         "repo": getattr(github, "full_name", "") or "",
         "path": path,
@@ -289,6 +405,7 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
     events: list[dict] = []
     logs: dict[str, list[str]] = {"current": [], "previous": []}
     workflow = None
+    related: list[dict] = []
 
     if source.get("kind") == "Workflow":
         workflow, failure, wf_obj = _workflow_section(core_api, custom_api, ns, source)
@@ -331,6 +448,7 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
             "container": container,
         }
         step_type = "pod"
+        related = _related_files(github, pod.get("spec") or {}, branch, path)
         texts = [logs["current"], logs["previous"], [e["message"] for e in events], [failure["message"] or ""]]
 
     sig = knowledge_signature(failure["reason"], failure["exitCode"], step_type, error_lines(*texts))
@@ -346,6 +464,7 @@ def collect(core_api: Any, custom_api: Any, github: Any, incident: dict, *, now:
         "logs": logs,
         "workflow": workflow,
         "git": _git_section(github, path, branch),
+        "related_files": related,
         "available": _available(core_api, ns),
         "history": [],
     }

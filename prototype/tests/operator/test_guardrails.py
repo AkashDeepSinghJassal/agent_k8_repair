@@ -214,3 +214,60 @@ def test_policy_fails_closed_when_conftest_missing(monkeypatch):
 def test_full_pipeline_passes_for_valid_fix():
     r = run(mem("256Mi"))
     assert r.ok and r.rejected_by is None, r.details
+
+
+# ---- grounded_values -----------------------------------------------------------
+
+CM_PATH = "deploy/demo/configmaps.yaml"
+CM = "data:\n  LOG_LEVEL: info\n"
+DIFF = '-  DB_URL: "redis://redis:6379"'
+
+
+def _cm_run(value, evidence):
+    edit = [Edit(find="  LOG_LEVEL: info\n", replace=f"  LOG_LEVEL: info\n  DB_URL: {value}\n")]
+    new = apply_edits(CM, edit)
+    p = prop(edit, CM_PATH)
+    return check(p, CM, new, CM_PATH, skip=("static", "server_dry_run", "policy"), allowed_paths=[CM_PATH, API_PATH], evidence_text=evidence)
+
+
+def test_grounded_values_rejects_invented_url():
+    r = _cm_run("postgres://example", DIFF)
+    assert r.rejected_by == "grounded_values" and "postgres://example" in r.details
+
+
+def test_grounded_values_accepts_value_from_diff():
+    assert _cm_run("redis://redis:6379", DIFF).ok
+
+
+def test_related_files_finds_configmap_source_and_hides_secret():
+    from types import SimpleNamespace as N
+
+    from repair_operator import evidence
+
+    cm = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\ndata:\n  LOG_LEVEL: info\n"
+    files = {"deploy/demo/configmaps.yaml": cm, "deploy/demo/api.yaml": "kind: Deployment\n"}
+
+    class Repo:
+        def get_git_tree(self, ref, recursive):
+            return N(tree=[N(path=p) for p in files])
+
+        def get_contents(self, path, ref):
+            return N(decoded_content=files[path].encode(), sha="s")
+
+        def get_commits(self, path, sha):
+            return []
+
+    spec = {"containers": [{"envFrom": [{"configMapRef": {"name": "api-config"}}, {"secretRef": {"name": "db-pass"}}]}]}
+    rel = evidence._related_files(Repo(), spec, "main", "deploy/demo/api.yaml")
+    assert rel[0]["path"] == "deploy/demo/configmaps.yaml" and "LOG_LEVEL" in rel[0]["content"]
+    assert rel[1] == {"path": "", "kind": "Secret", "name": "db-pass",
+                      "content": "(Secret: contents are never included)", "lastCommitDiff": ""}
+    assert evidence.allowed_files({"git": {"path": "a.yaml"}, "related_files": rel}) == ["a.yaml", "deploy/demo/configmaps.yaml"]
+
+
+def test_signature_is_workload_independent():
+    from repair_operator.fingerprint import knowledge_signature as sig
+
+    a = "Back-off restarting failed container api in pod api-5c559d8c67-gnw4w_demo(50a65a5a-a563-4d43-bf10-19d166e9136e)"
+    b = "Back-off restarting failed container api-b in pod api-b-67f98cb665-ffl6z_demo-b(c720f30f-6415-473e-b772-11ea0b4e50e0)"
+    assert sig("OOMKilled", 137, "pod", [a]) == sig("OOMKilled", 137, "pod", [b])

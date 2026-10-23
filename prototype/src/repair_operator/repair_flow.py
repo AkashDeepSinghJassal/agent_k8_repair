@@ -193,18 +193,23 @@ def analyze_step(
 
         gh = _repo(repo, settings)
         path = (bundle.get("git") or {}).get("path")
+        allowed = evidence.allowed_files(bundle)
+        ev_text = evidence.evidence_text(bundle)
         rejected_by, details = None, ""
-        if not path or proposal.file != path:
-            res = guard_fn(proposal, "", "", path or "", skip=guard_skip)
+        if not path or proposal.file not in allowed:
+            res = guard_fn(proposal, "", "", path or "", skip=guard_skip, allowed_paths=allowed)
             rejected_by, details = res.rejected_by or "path_allowlist", res.details
         else:
-            current = gh.get_contents(path, ref=gh.default_branch).decoded_content.decode("utf-8")
+            current = gh.get_contents(proposal.file, ref=gh.default_branch).decoded_content.decode("utf-8")
             try:
                 new_text = guardrails.apply_edits(current, proposal.edits)
             except guardrails.GuardrailError as exc:
                 rejected_by, details = "exact_edit", str(exc)
             else:
-                res = guard_fn(proposal, current, new_text, path, skip=guard_skip)
+                res = guard_fn(
+                    proposal, current, new_text, proposal.file,
+                    skip=guard_skip, allowed_paths=allowed, evidence_text=ev_text,
+                )
                 if not res.ok:
                     rejected_by, details = res.rejected_by, res.details
         if rejected_by:
@@ -259,6 +264,8 @@ def review_step(
     """AwaitingReview poll: merged -> Merged, changes requested -> Analyzing, closed -> Failed."""
     settings = settings or get_settings()
     status = body.get("status") or {}
+    if status.get("phase") not in (None, Phase.AWAITING_REVIEW.value):
+        return  # a delayed poll that fires after the phase already moved on must not regress it
     number = _pr_number(status.get("pullRequest"))
     if number is None:
         return

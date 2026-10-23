@@ -143,7 +143,7 @@ LLM call (`analyzer/llm.py`): Anthropic Python SDK, `client.messages.parse(model
 
 ## 8. Guardrails (`repair_operator/guardrails.py`)
 
-`check(proposal, current_text: str, new_text: str, path: str) -> GuardrailResult(ok: bool, rejected_by: str|None, details: str)`. Checks run in order: `path_allowlist, exact_edit, size_cap(10), static(yamllint+kubeconform -strict / argo lint), server_dry_run, policy(conftest policy/)`. Each check is a function that can be skipped by name in tests (the cluster-dependent `server_dry_run` is skipped when no cluster is reachable).
+`check(proposal, current_text: str, new_text: str, path: str, *, allowed_paths=(), evidence_text=None) -> GuardrailResult(ok: bool, rejected_by: str|None, details: str)`. Checks run in order: `path_allowlist` (the edited file must be git.path or a related_files[].path), `exact_edit`, `size_cap(10)`, `grounded_values` (literals added by the edits - URLs, host:port, images, sizes, quoted strings with a colon or slash - must appear verbatim in the evidence text or the original file; template edits exempt; skipped when evidence_text is None), `static` (yamllint+kubeconform -strict / argo lint), `server_dry_run`, `policy` (conftest policy/). Each check is a function that can be skipped by name in tests (the cluster-dependent `server_dry_run` is skipped when no cluster is reachable). A rejection is fed back to the analyzer as reviewer feedback for a retry; after max attempts the incident escalates.
 
 ## 9. Recipe store (`repair_operator/knowledge.py`)
 

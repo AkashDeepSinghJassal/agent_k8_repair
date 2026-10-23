@@ -278,10 +278,10 @@ def test_llm_not_fixable_or_low_confidence_escalates(store, settings):
     assert p.tier == 4 and p.edits == []
 
 
-def test_edits_for_template_class_not_accepted(store, settings):
+def test_edits_without_template_accepted_for_any_class(store, settings):
     c = FakeClient(reply(**{"class": "OOM_KILLED"}))  # find/replace for a template class
     p = analyze(bundle(failure={"reason": "Error"}), ["fb"], store=store, client=c, settings=settings)
-    assert p.tier == 4
+    assert p.tier == 3  # e.g. a missing ConfigMap key has no template
 
 
 def test_refusal_is_invalid_output(store, settings):

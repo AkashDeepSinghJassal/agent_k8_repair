@@ -23,8 +23,17 @@ INCIDENT_LABEL = f"{GROUP}/incident"
 FAILURE_WAITING = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError"}
 
 
-def app_name(namespace: str) -> str:
+WORKFLOW_APP = "demo-workflows"  # syncs workflows/ (WorkflowTemplates) into ns demo
+
+
+def app_name(namespace: str, workflow: bool = False) -> str:
+    if workflow:
+        return WORKFLOW_APP
     return APP_BY_NAMESPACE.get(namespace, "demo-app")
+
+
+def is_workflow(incident: dict) -> bool:
+    return ((incident.get("spec") or {}).get("source") or {}).get("kind") == "Workflow"
 
 
 def parse_ts(value: Any) -> datetime | None:
@@ -42,17 +51,17 @@ def iso(now: datetime) -> str:
 # --- Argo CD ---------------------------------------------------------------
 
 
-def refresh_app(custom_api: Any, namespace: str) -> None:
+def refresh_app(custom_api: Any, namespace: str, workflow: bool = False) -> None:
     """Ask Argo CD to fetch git now instead of waiting for its poll."""
     custom_api.patch_namespaced_custom_object(
-        "argoproj.io", "v1alpha1", ARGOCD_NS, "applications", app_name(namespace),
+        "argoproj.io", "v1alpha1", ARGOCD_NS, "applications", app_name(namespace, workflow),
         {"metadata": {"annotations": {"argocd.argoproj.io/refresh": "normal"}}},
     )
 
 
-def get_app(custom_api: Any, namespace: str) -> dict:
+def get_app(custom_api: Any, namespace: str, workflow: bool = False) -> dict:
     return custom_api.get_namespaced_custom_object(
-        "argoproj.io", "v1alpha1", ARGOCD_NS, "applications", app_name(namespace)
+        "argoproj.io", "v1alpha1", ARGOCD_NS, "applications", app_name(namespace, workflow)
     )
 
 

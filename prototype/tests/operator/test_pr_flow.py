@@ -145,7 +145,7 @@ class Env:
         self.settings = Settings(state_dir=tmp_path, **settings)
         (tmp_path / "evidence").mkdir()
         bundle = {"incident": NAME, "signature": "sig", "git": {"path": PATH}, "source": {"owner": "Deployment/api", "container": "api"},
-                  "failure": {"reason": "OOMKilled", "exitCode": 137, "restartCount": 3}, "events": []}
+                  "failure": {"reason": "OOMKilled", "exitCode": 137, "restartCount": 3, "message": "needs 1Gi or 512Mi"}, "events": []}
         (tmp_path / "evidence" / f"{NAME}-1.json").write_text(json.dumps(bundle))
         self.repo = FakeRepo({PATH: FIX.read_text()})
         self.analyze_fn = analyze_fn
@@ -345,6 +345,7 @@ def test_recipe_outcomes_recorded(tmp_path):
     env, _ = make_env(tmp_path, lambda b, f=None, **k: p)
     env.status["proposal"] = repair_flow._proposal_status(p)
     env.status["pullRequest"] = "https://github.com/o/r/pull/1"
+    env.status["phase"] = "AwaitingReview"
     env.repo.prs.append(FakePR(env.repo, 1, "b", "t", "b"))
     env.repo.prs[0].merge()
     env.review(store=store)
@@ -359,7 +360,7 @@ def test_main_handlers_registered():
 
 
 def _bundle(name, marker):
-    return {"incident": name, "signature": "sig", "git": {"path": PATH}, "marker": marker,
+    return {"incident": name, "signature": "sig", "git": {"path": PATH}, "marker": marker, "note": "1Gi 512Mi",
             "source": {"owner": "Deployment/api", "container": "api"}, "events": []}
 
 
@@ -443,3 +444,13 @@ def test_stale_merged_pr_for_same_incident_name_is_not_reused():
     old.merge()
     new = open_or_update_pr(repo, "ri-x", proposal(), "memory: 256Mi\n", 1)
     assert new is not old and new.state == "open" and len(repo.prs) == 2
+
+
+def test_stale_review_poll_does_not_regress_phase(tmp_path):
+    env, cur = make_env(tmp_path, lambda b, f=None, **k: proposal(find=cur, replace="memory: 1Gi"))
+    env.analyze()
+    env.propose()
+    env.repo.prs[0].merge()
+    env.body["status"]["phase"] = "Verifying"  # the Argo-sync handler already moved on
+    env.review()
+    assert env.status["phase"] == "Verifying"

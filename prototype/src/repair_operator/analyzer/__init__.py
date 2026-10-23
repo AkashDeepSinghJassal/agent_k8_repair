@@ -61,7 +61,10 @@ def analyze(
         store = store or default_store(settings)
         recipe = store.lookup(signature)
         if recipe:
-            edits = templates.render(recipe.template, bundle, recipe.params)
+            params = dict(recipe.params)
+            if "container" in params and (bundle.get("source") or {}).get("container"):
+                params["container"] = bundle["source"]["container"]  # same fault, other workload
+            edits = templates.render(recipe.template, bundle, params)
             if edits:
                 return Proposal(
                     **{"class": recipe.cls},
@@ -71,7 +74,7 @@ def analyze(
                     file=file,
                     edits=edits,
                     template=recipe.template,
-                    params=recipe.params,
+                    params=params,
                     rationale="Matched a promoted recipe; rendered deterministically without the LLM.",
                     tier=0,
                     source="recipe",
@@ -132,7 +135,7 @@ def _from_llm(out: LlmProposal, bundle: dict, file: str | None) -> Proposal:
                 **{"class": cls}, fixable_in_git=True, file=file, edits=edits, template=out.template,
                 params=params, needs_remeasure=out.needs_remeasure, tier=2, source="llm", **base,
             )
-    elif cls in OPEN_ENDED and out.edits and not out.template:
+    elif out.edits and not out.template:  # edit-based fix for any class (e.g. a missing ConfigMap key)
         return Proposal(
             **{"class": cls}, fixable_in_git=True, file=out.file or file, edits=out.edits,
             needs_remeasure=out.needs_remeasure, tier=3, source="llm", **base,
