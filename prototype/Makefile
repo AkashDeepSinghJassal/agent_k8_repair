@@ -18,3 +18,9 @@ operator:
 
 dashboard:
 	uv run uvicorn repair_dashboard.app:app --port 8090
+
+demo-up:
+	bash scripts/start_demo.sh
+
+demo-down:
+	bash scripts/stop_demo.sh
