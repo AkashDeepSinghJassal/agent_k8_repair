@@ -16,6 +16,8 @@ _POD = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[a-z0-9]{5,10}-[a-z0-9]{5}\b
 _HASH = re.compile(r"\b(?:sha256:)?[0-9a-fA-F]{12,}\b")
 _NUM = re.compile(r"\b\d{4,}\b")
 _OBJ = re.compile(r"(?i)\b(container|pod|namespace)([= ])(?!<)\S+")  # container=api pod=api-x-y_demo(uid)
+# kubelet consequences whose presence depends on timing, not on the cause
+_NOISE = re.compile(r"(?i)restarting failed container|readiness probe failed")
 _WS = re.compile(r"\s+")
 
 
@@ -44,7 +46,7 @@ def knowledge_signature(
     extra_codes: Iterable[str] = (),
 ) -> str:
     """12-hex failure signature; never includes namespace or workload names."""
-    lines = sorted({n for n in (normalise_line(x) for x in error_lines) if n})
+    lines = sorted({n for n in (normalise_line(x) for x in error_lines if not _NOISE.search(x)) if n})
     codes = sorted(str(c) for c in extra_codes)
     payload = "|".join([reason, str(exit_code), step_type, *lines, *codes])
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
