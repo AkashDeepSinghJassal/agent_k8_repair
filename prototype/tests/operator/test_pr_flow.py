@@ -100,7 +100,11 @@ class FakeRepo:
         self.commits.append((branch, message))
 
     def get_pulls(self, state="open", head=None):
-        return [p for p in self.prs if head is None or head == f"o:{p.head}"]
+        return [p for p in self.prs if (head is None or head == f"o:{p.head}") and state in ("all", p.state)]
+
+    def get_git_ref(self, ref):
+        name = ref.removeprefix("heads/")
+        return SimpleNamespace(delete=lambda: self.branches.pop(name))
 
     def get_pull(self, n):
         return next(p for p in self.prs if p.number == n)
@@ -429,3 +433,13 @@ def test_llm_unavailable_escalates_immediately(tmp_path):
     assert len(calls) == 1
     assert env.status["phase"] == "Escalated"
     assert env.status["outcome"]["reason"] == "llm_unavailable: credit balance is too low"
+
+
+def test_stale_merged_pr_for_same_incident_name_is_not_reused():
+    from repair_operator.git_writer import open_or_update_pr
+
+    repo = FakeRepo({PATH: "memory: 128Mi\n"})
+    old = open_or_update_pr(repo, "ri-x", proposal(), "memory: 256Mi\n", 1)
+    old.merge()
+    new = open_or_update_pr(repo, "ri-x", proposal(), "memory: 256Mi\n", 1)
+    assert new is not old and new.state == "open" and len(repo.prs) == 2

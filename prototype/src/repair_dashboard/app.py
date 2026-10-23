@@ -137,12 +137,7 @@ def _fault_view(entry: dict, backend: FaultBackend, reader: KubeReader) -> dict:
 def _is_injected_in_git(entry: dict, backend: FaultBackend) -> bool:
     """True when the target file already carries the breaking edits (survives a dashboard restart)."""
     git = backend.git or faults._default_git()
-    text = git.get_file(entry["target_file"])
-    try:
-        faults.apply_edits(text, faults.inverse_edits(faults.edits_for(entry)))
-        return True
-    except faults.FaultError:
-        return False
+    return faults.is_injected(entry, git.get_file(entry["target_file"]))
 
 
 @app.get("/api/actions/status")
@@ -169,9 +164,10 @@ def inject_fault(fault_id: str, backend: FaultBackend = Backend):
     try:
         entry = faults.get_fault(fault_id)
         with backend.state.lock:
-            if fault_id in backend.state.injected:
-                return {"id": fault_id, "status": "already-injected", "injectedAt": backend.state.injected[fault_id]}
-            if entry["kind"] != "cluster" and _is_injected_in_git(entry, backend):
+            if entry["kind"] == "cluster":
+                if fault_id in backend.state.injected:
+                    return {"id": fault_id, "status": "already-injected", "injectedAt": backend.state.injected[fault_id]}
+            elif _is_injected_in_git(entry, backend):
                 return {"id": fault_id, "status": "already-injected", "injectedAt": backend.state.mark(fault_id)}
             result = faults.inject(fault_id, git=backend.git, kubectl=backend.kubectl)
             return {**result, "status": "injected", "injectedAt": backend.state.mark(fault_id)}
@@ -184,11 +180,8 @@ def revert_fault(fault_id: str, backend: FaultBackend = Backend):
     try:
         entry = faults.get_fault(fault_id)
         with backend.state.lock:
-            if (
-                entry["kind"] != "cluster"
-                and fault_id not in backend.state.injected
-                and not _is_injected_in_git(entry, backend)
-            ):
+            if entry["kind"] != "cluster" and not _is_injected_in_git(entry, backend):
+                backend.state.clear(fault_id)  # git is the truth; a repair may have healed it already
                 return {"id": fault_id, "status": "not-injected"}
             result = faults.revert(fault_id, git=backend.git, kubectl=backend.kubectl)
             backend.state.clear(fault_id)

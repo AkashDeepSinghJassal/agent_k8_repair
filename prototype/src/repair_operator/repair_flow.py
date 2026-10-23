@@ -77,6 +77,11 @@ def _classification(p: Proposal) -> dict:
         d.update(ruleHint=p.rule_disagreement.get("rule"), disagrees=True)
     elif p.rule_disagreement is None and p.source == "llm":
         d["disagrees"] = False
+    if p.llm_meta:
+        m = p.llm_meta
+        d.update(provider=m.get("provider"), model=m.get("model"), latencyMs=m.get("latencyMs"))
+        if m.get("usage"):
+            d["usage"] = m["usage"]
     return d
 
 

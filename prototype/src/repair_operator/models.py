@@ -45,5 +45,6 @@ class Proposal(BaseModel):
     verify: str = ""
     needs_remeasure: bool = False
     rule_disagreement: dict | None = None
+    llm_meta: dict | None = Field(default=None, exclude=True)  # provider/model/latencyMs/usage of the LLM call
     tier: int
     source: Literal["rules", "llm", "recipe"]
