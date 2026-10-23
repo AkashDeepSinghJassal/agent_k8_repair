@@ -263,3 +263,11 @@ def test_related_files_finds_configmap_source_and_hides_secret():
     assert rel[1] == {"path": "", "kind": "Secret", "name": "db-pass",
                       "content": "(Secret: contents are never included)", "lastCommitDiff": ""}
     assert evidence.allowed_files({"git": {"path": "a.yaml"}, "related_files": rel}) == ["a.yaml", "deploy/demo/configmaps.yaml"]
+
+
+def test_signature_is_workload_independent():
+    from repair_operator.fingerprint import knowledge_signature as sig
+
+    a = "Back-off restarting failed container api in pod api-5c559d8c67-gnw4w_demo(50a65a5a-a563-4d43-bf10-19d166e9136e)"
+    b = "Back-off restarting failed container api-b in pod api-b-67f98cb665-ffl6z_demo-b(c720f30f-6415-473e-b772-11ea0b4e50e0)"
+    assert sig("OOMKilled", 137, "pod", [a]) == sig("OOMKilled", 137, "pod", [b])

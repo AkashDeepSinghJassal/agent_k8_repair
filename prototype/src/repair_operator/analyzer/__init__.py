@@ -61,7 +61,10 @@ def analyze(
         store = store or default_store(settings)
         recipe = store.lookup(signature)
         if recipe:
-            edits = templates.render(recipe.template, bundle, recipe.params)
+            params = dict(recipe.params)
+            if "container" in params and (bundle.get("source") or {}).get("container"):
+                params["container"] = bundle["source"]["container"]  # same fault, other workload
+            edits = templates.render(recipe.template, bundle, params)
             if edits:
                 return Proposal(
                     **{"class": recipe.cls},
@@ -71,7 +74,7 @@ def analyze(
                     file=file,
                     edits=edits,
                     template=recipe.template,
-                    params=recipe.params,
+                    params=params,
                     rationale="Matched a promoted recipe; rendered deterministically without the LLM.",
                     tier=0,
                     source="recipe",

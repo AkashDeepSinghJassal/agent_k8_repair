@@ -15,6 +15,7 @@ _IP = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b")
 _POD = re.compile(r"\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[a-z0-9]{5,10}-[a-z0-9]{5}\b")
 _HASH = re.compile(r"\b(?:sha256:)?[0-9a-fA-F]{12,}\b")
 _NUM = re.compile(r"\b\d{4,}\b")
+_OBJ = re.compile(r"(?i)\b(container|pod|namespace)([= ])(?!<)\S+")  # container=api pod=api-x-y_demo(uid)
 _WS = re.compile(r"\s+")
 
 
@@ -24,6 +25,7 @@ def normalise_line(line: str) -> str:
     s = _TS.sub("<TS>", s)
     s = _IP.sub("<IP>", s)
     s = _POD.sub("<POD>", s)
+    s = _OBJ.sub(r"\1\2<NAME>", s)
     s = _HASH.sub("<HASH>", s)
     s = _NUM.sub("<N>", s)
     return _WS.sub(" ", s).strip()
