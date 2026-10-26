@@ -4,7 +4,7 @@ Date: 2026-10-26. Branch: `plan-v3`. Status: research notes. Some items are deli
 
 Goal in the user's words: understand how the industry does this today, how MCP helps build agentic systems, and how we could build an agentic operator that talks to all the repositories and services, understands the whole system, repairs failures, and builds knowledge so it improves over time.
 
-Read with [mcp-agentic-and-hybrid-approaches.md](mcp-agentic-and-hybrid-approaches.md), which covers Approach C and the operator/agent hybrid in detail.
+Read with [approach-c-and-hybrid.md](approach-c-and-hybrid.md), which covers Approach C and the operator/agent hybrid in detail.
 
 **Source quality.** I read the MCP changelog in full. Everything else comes from search summaries, vendor blogs or abstracts that I did not open in full. Each claim below carries a confidence tag: **[read]** read directly, **[summary]** from a search summary, **[vendor]** a vendor describing its own product.
 
@@ -155,4 +155,4 @@ Some are off-topic on purpose. "Fit" is my first guess, to be argued with, not a
 Read directly: [MCP 2026-07-28 changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog).
 Search summaries (not opened in full): [MCP 2026-07-28 release post](https://blog.modelcontextprotocol.io/posts/2026-07-28/), [MCP vs A2A overview](https://philippdubach.com/posts/mcp-vs-a2a-in-2026-how-the-ai-protocol-war-ends/), [Agent memory survey 2602.06052](https://arxiv.org/pdf/2602.06052), [Dynamic agent skills survey 2607.10113](https://arxiv.org/pdf/2607.10113), [Cloud-OpsBench 2603.00468](https://arxiv.org/pdf/2603.00468), [OpenDerisk 2510.13561](https://arxiv.org/html/2510.13561v2), [Sourcegraph MCP](https://sourcegraph.com/mcp), [Agent Skills overview](https://atlan.com/know/ai-agent/ai-agent-skills/what-are-agent-skills/), [CSA note on MCP tool poisoning](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-tool-poisoning-auto-execution-20260701/), [CNCF 2026 forecast](https://www.cncf.io/blog/2026/01/23/the-autonomous-enterprise-and-the-four-pillars-of-platform-control-2026-forecast/).
 Vendor material (claims about their own products): [Preloop](https://preloop.ai/resources/ai-agent-control-plane-2026), [Gravitee](https://gravitee.io/corpus/gen-582/intelligent-agent/agent-autonomy-levels-and-human-in-the-loop-control-models.html).
-Earlier note, with the Crystallization, Kubernaut and cMCP details: [mcp-agentic-and-hybrid-approaches.md](mcp-agentic-and-hybrid-approaches.md).
+Earlier note, with the Crystallization, Kubernaut and cMCP details: [approach-c-and-hybrid.md](approach-c-and-hybrid.md).
