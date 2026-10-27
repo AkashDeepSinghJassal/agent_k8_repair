@@ -43,11 +43,22 @@ if [ -z "${REPAIR_LLM_PROVIDER:-}" ]; then
   if [ -n "${GROQ_API_KEY:-}" ]; then REPAIR_LLM_PROVIDER=groq; else REPAIR_LLM_PROVIDER=anthropic; fi
 fi
 export REPAIR_LLM_PROVIDER
-case "$REPAIR_LLM_PROVIDER" in
-  groq) [ -n "${GROQ_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=groq but GROQ_API_KEY is not set" ;;
-  anthropic) [ -n "${ANTHROPIC_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set" ;;
+case "${REPAIR_ANALYZER_MODE:-agent}:$REPAIR_LLM_PROVIDER" in
+  agent:*) : ;; # agent mode: keys are checked by the agent host (groq key or the claude CLI), not here
+  *:groq) [ -n "${GROQ_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=groq but GROQ_API_KEY is not set" ;;
+  *:anthropic) [ -n "${ANTHROPIC_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set" ;;
   *) die "unknown REPAIR_LLM_PROVIDER '$REPAIR_LLM_PROVIDER' (use groq or anthropic)" ;;
 esac
+
+# Analyzer: this branch (prototype-v3) defaults to the agent-over-MCP mode. Set REPAIR_ANALYZER_MODE=llm-first
+# to use the single-shot LLM instead. REPAIR_AGENT_PROVIDER (groq | claude-cli) is passed through; the
+# dashboard switch (agent-config.json) overrides it at runtime.
+export REPAIR_ANALYZER_MODE="${REPAIR_ANALYZER_MODE:-agent}"
+if [ -n "${REPAIR_AGENT_PROVIDER:-}" ]; then
+  export REPAIR_AGENT_PROVIDER
+  AGENT_PROVIDER_DESC="$REPAIR_AGENT_PROVIDER"
+elif [ -n "${GROQ_API_KEY:-}" ]; then AGENT_PROVIDER_DESC="groq (auto)"
+else AGENT_PROVIDER_DESC="claude-cli (auto)"; fi
 
 # Demo timings: everything at 5 s (override by exporting these before running). The operator's own defaults
 # are slower (debounce 60 s, PR poll 30 s, verify window 120 s, cooldown 600 s). A 5 s verify window only
@@ -74,7 +85,9 @@ start operator uv run kopf run -m repair_operator.main --all-namespaces --verbos
 start dashboard uv run uvicorn repair_dashboard.app:app --port 8090
 
 echo
-echo "LLM provider:  $REPAIR_LLM_PROVIDER"
+echo "Analyzer mode: $REPAIR_ANALYZER_MODE"
+[ "$REPAIR_ANALYZER_MODE" = agent ] && echo "Agent provider: $AGENT_PROVIDER_DESC (switch in the dashboard header)"
+echo "LLM provider:  $REPAIR_LLM_PROVIDER (single-shot analyzer / fallback)"
 echo "Dashboard:     http://localhost:8090"
 echo "Demo app:      http://localhost:8080"
 echo "Logs:          $RUN_DIR/"

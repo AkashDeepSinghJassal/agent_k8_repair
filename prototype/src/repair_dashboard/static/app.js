@@ -355,8 +355,45 @@ function drawerContent(i) {
   }
   if (i.reviewFeedback && i.reviewFeedback.length)
     out.push(h("h4", {}, "Review feedback"), h("ul", {}, i.reviewFeedback.map((f) => h("li", {}, f))));
+  out.push(h("h4", {}, "Agent investigation"), h("div", { id: "agent-trace" }, h("p", { class: "muted" }, "Loading...")));
+  loadAgentTrace(i);
   if (i.pullRequest) out.push(...prActions(i));
   return out;
+}
+
+async function loadAgentTrace(i) {
+  let traces;
+  try {
+    traces = await getJSON(`/api/incidents/${encodeURIComponent(i.namespace)}/${encodeURIComponent(i.name)}/agent-trace`);
+  } catch (e) { return fillTrace([errorBox("agent trace", e)]); }
+  if (!traces.length) return fillTrace([h("p", { class: "muted" }, "No agent trace (agent mode off, or not analysed yet).")]);
+  fillTrace(traces.flatMap((t) => {
+    const u = t.usage || {};
+    const head = `Attempt ${t.attempt}: ${u.provider || "?"} / ${u.model || "?"}, ${u.steps ?? (t.trace || []).length} steps, ${t.status}` +
+      (u.fallback_from ? ` (fallback from ${u.fallback_from})` : "") + (t.error ? ` - ${t.error}` : "");
+    return [h("p", {}, head), table("Agent trace attempt " + t.attempt, ["Step", "Tool", "Args", "Result"],
+      (t.trace || []).map((s) => h("tr", {},
+        h("td", {}, s.step), h("td", { class: "mono" }, s.tool),
+        h("td", { class: "mono" }, JSON.stringify(s.args || {}).slice(0, 160)),
+        h("td", { class: "mono" }, (s.error ? "ERROR " : "") + String(s.result_preview ?? s.error ?? "").slice(0, 160)))))];
+  }));
+}
+function fillTrace(nodes) { const el = $("agent-trace"); if (el) el.replaceChildren(...nodes); }
+
+async function initAgentSwitch() {
+  const sel = $("agent-provider");
+  try {
+    const c = await getJSON("/api/agent/config");
+    for (const p of ["groq", "claude-cli"]) {
+      const o = h("option", { value: p }, p + (c.available[p] ? "" : " (unavailable)"));
+      if (p === c.provider) o.selected = true;
+      sel.append(o);
+    }
+  } catch (e) { sel.hidden = true; return; }
+  sel.addEventListener("change", async () => {
+    try { await postJSON("/api/agent/config", { provider: sel.value }); toast("Agent provider: " + sel.value); }
+    catch (e) { toast(e.message, true); }
+  });
 }
 
 function patchNode(patch) {
@@ -454,4 +491,5 @@ $("drawer-close").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("drawer").hidden) closeDrawer(); });
 refresh();
 refreshFaults();
+initAgentSwitch();
 setInterval(() => { if (!document.hidden) { refresh(); refreshFaults(); } }, 5000);

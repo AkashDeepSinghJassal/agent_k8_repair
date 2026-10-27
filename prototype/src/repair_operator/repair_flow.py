@@ -85,6 +85,18 @@ def _classification(p: Proposal) -> dict:
     return d
 
 
+def _agent_status(p: Proposal) -> dict:
+    m = p.agent_meta or {}
+    d = {
+        "provider": m.get("provider"), "model": m.get("model"),
+        "steps": m.get("steps") or len(m.get("trace") or []),
+        "tools": [t.get("tool") for t in m.get("trace") or []],
+    }
+    if m.get("fallback_from"):
+        d["fallbackFrom"] = m["fallback_from"]
+    return d
+
+
 def _proposal_status(p: Proposal, rejected_by: str | None = None) -> dict:
     d = p.model_dump(by_alias=True)
     d["edits"] = [e.model_dump() for e in p.edits]
@@ -166,6 +178,8 @@ def analyze_step(
             _escalate(patch, "evidence_missing", now, None, status, incident=body, attempts=attempts)
             return
         try:
+            if settings.analyzer_mode == "agent":
+                bundle = {**bundle, "attempt": attempts}  # names the saved agent trace
             proposal = analyze_fn(bundle, feedback or None, store=store) if store else analyze_fn(bundle, feedback or None)
         except LlmUnavailable as exc:
             log.error("%s: LLM unavailable: %s", name, exc.reason)
@@ -178,6 +192,8 @@ def analyze_step(
             continue
 
         common = {"classification": _classification(proposal), "attempts": attempts, "reviewFeedback": feedback}
+        if proposal.source == "agent":
+            common["agent"] = _agent_status(proposal)
         if settings.shadow_mode:
             incidents.set_phase(
                 patch, Phase.ESCALATED, now, incident=body, shadow=True, proposal=_proposal_status(proposal),
@@ -185,9 +201,12 @@ def analyze_step(
             )
             return
         if proposal.tier == 4 or not proposal.fixable_in_git:
+            reason = "not_fixable_in_git"
+            if proposal.source == "agent" and (proposal.agent_meta or {}).get("status") == "failed":
+                reason = f"agent_failed: {proposal.rationale[:160]}"
             incidents.set_phase(
                 patch, Phase.ESCALATED, now, incident=body, proposal=_proposal_status(proposal),
-                outcome={"result": "escalated", "reason": "not_fixable_in_git"}, **common,
+                outcome={"result": "escalated", "reason": reason}, **common,
             )
             return
 
@@ -195,6 +214,9 @@ def analyze_step(
         path = (bundle.get("git") or {}).get("path")
         allowed = evidence.allowed_files(bundle)
         ev_text = evidence.evidence_text(bundle)
+        if proposal.source == "agent":
+            ev_text += "\n" + proposal.agent_evidence
+            allowed = [*allowed, *(f for f in proposal.agent_files if guardrails._ALLOWED.match(f) and f not in allowed)]
         rejected_by, details = None, ""
         if not path or proposal.file not in allowed:
             res = guard_fn(proposal, "", "", path or "", skip=guard_skip, allowed_paths=allowed)

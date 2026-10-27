@@ -27,7 +27,7 @@ class Settings(BaseModel):
     llm_provider: str = "groq"  # "groq" | "anthropic"
     llm_model: str = ""  # empty -> provider default (DEFAULT_MODELS)
     llm_reasoning_effort: str = "medium"  # low|medium|high; sent to gpt-oss models only
-    analyzer_mode: str = "llm-first"  # "llm-first" | "rules-first"
+    analyzer_mode: str = "llm-first"  # "llm-first" | "rules-first" | "agent"
     shadow_mode: bool = False
     debounce_seconds: int = 60
     verify_window_seconds: int = 120
@@ -40,6 +40,8 @@ class Settings(BaseModel):
     def _default_model(self) -> Settings:
         if self.llm_provider not in DEFAULT_MODELS:
             raise ValueError(f"REPAIR_LLM_PROVIDER must be one of {sorted(DEFAULT_MODELS)}, got {self.llm_provider!r}")
+        if self.analyzer_mode not in ("llm-first", "rules-first", "agent"):
+            raise ValueError(f"REPAIR_ANALYZER_MODE must be llm-first, rules-first or agent, got {self.analyzer_mode!r}")
         if not self.llm_model:
             self.llm_model = DEFAULT_MODELS[self.llm_provider]
         return self

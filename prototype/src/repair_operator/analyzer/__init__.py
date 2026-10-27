@@ -1,6 +1,6 @@
 """Analyzer: ``analyze(bundle, feedback) -> Proposal`` (CONTRACTS section 7).
 
-Modes: ``llm-first`` (default) tier 0 recipe, then always the LLM (rule table is only a hint, disagreement is
+Modes: ``agent`` (agent over MCP, nothing else), ``llm-first`` (default) tier 0 recipe, then always the LLM (rule table is only a hint, disagreement is
 recorded); ``rules-first``: tier 0, tier 1 rules + template, then the LLM. Tier 4 escalates.
 """
 
@@ -54,6 +54,11 @@ def analyze(
     feedback = list(feedback or [])
     settings = settings or get_settings()
     file = _path(bundle)
+
+    if settings.analyzer_mode == "agent":  # pure Approach C: no recipe, no rules
+        from .agent import agent_analyze
+
+        return agent_analyze(bundle, feedback)
 
     # Tier 0: promoted recipe. Skipped when a reviewer rejected a previous attempt.
     signature = bundle.get("signature")

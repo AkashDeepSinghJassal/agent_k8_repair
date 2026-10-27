@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
+import shutil
 from functools import lru_cache
 from pathlib import Path
 
@@ -274,6 +277,58 @@ def request_changes(
     _found, number = _incident_pr(ns, name, reader)
     prs.comment(number, f"/repair retry {text}")
     return {"commented": True, "number": number}
+
+
+def _state_dir() -> Path:
+    return Path(os.environ.get("REPAIR_STATE_DIR") or "~/.repair-loop").expanduser()
+
+
+PROVIDERS = ("groq", "claude-cli")
+
+
+def _agent_config() -> dict:
+    try:
+        return json.loads((_state_dir() / "agent-config.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+@app.get("/api/agent/config")
+def agent_config_get():
+    cfg = _agent_config()
+    available = {"groq": bool(os.environ.get("GROQ_API_KEY")), "claude-cli": shutil.which("claude") is not None}
+    provider = cfg.get("provider") or os.environ.get("REPAIR_AGENT_PROVIDER") or ("groq" if available["groq"] else "claude-cli")
+    return {"provider": provider, "model": cfg.get("model") or "", "available": available}
+
+
+@app.post("/api/agent/config")
+def agent_config_set(body: dict = JsonBody):
+    provider = body.get("provider")
+    if provider not in PROVIDERS:
+        raise HTTPException(400, f"provider must be one of {', '.join(PROVIDERS)}")
+    cfg = {"provider": provider}
+    if body.get("model"):
+        cfg["model"] = str(body["model"])[:100]
+    d = _state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "agent-config.json").write_text(json.dumps(cfg))
+    return agent_config_get()
+
+
+@app.get("/api/incidents/{ns}/{name}/agent-trace")
+def agent_trace(ns: str, name: str):
+    """Saved agent traces of an incident (one per attempt), latest attempt first."""
+    base = _state_dir() / "agent-traces"
+    pattern = re.compile(re.escape(name) + r"-a(\d+)\.json$")
+    found = []
+    for p in base.glob(f"{name}-a*.json") if base.is_dir() else []:
+        m = pattern.match(p.name)
+        if m:
+            try:
+                found.append((int(m.group(1)), json.loads(p.read_text())))
+            except (OSError, ValueError):
+                continue
+    return [t for _, t in sorted(found, key=lambda x: -x[0])]
 
 
 @app.post("/api/pipelines/rerun")

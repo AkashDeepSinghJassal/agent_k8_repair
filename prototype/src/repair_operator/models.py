@@ -46,5 +46,8 @@ class Proposal(BaseModel):
     needs_remeasure: bool = False
     rule_disagreement: dict | None = None
     llm_meta: dict | None = Field(default=None, exclude=True)  # provider/model/latencyMs/usage of the LLM call
+    agent_meta: dict | None = Field(default=None, exclude=True)  # usage + status + trace of the agent run
+    agent_evidence: str = Field(default="", exclude=True)  # text of every tool result (grounding)
+    agent_files: list[str] = Field(default_factory=list, exclude=True)  # git paths the agent read
     tier: int
-    source: Literal["rules", "llm", "recipe"]
+    source: Literal["rules", "llm", "recipe", "agent"]

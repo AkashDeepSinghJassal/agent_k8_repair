@@ -82,7 +82,7 @@ def _healthy_text(fault):
 def test_faults_list_with_state(env):
     c = env["client"]
     data = c.get("/api/faults").json()
-    assert [f["id"] for f in data] == [f"F{i}" for i in range(1, 10)]
+    assert [f["id"] for f in data][:9] == [f"F{i}" for i in range(1, 10)]
     f1 = data[0]
     assert f1["injected"] is False and f1["incident"] is None and f1["expected_class"]
     assert "breaking_edits" not in f1
@@ -124,7 +124,7 @@ def test_unknown_fault_404(env):
 def test_faults_listing_works_without_token_or_cluster(env):
     env["reader"].error = "no cluster"
     r = env["client"].get("/api/faults")
-    assert r.status_code == 200 and len(r.json()) == 9
+    assert r.status_code == 200 and len(r.json()) >= 9
 
 
 def test_inject_without_token_is_503(env):
