@@ -4,6 +4,30 @@ A Kubernetes-native AI repair loop. A Kopf operator watches a small GitOps-deplo
 
 Design sources: `../repair-loop-prototype-implementation-plan.md`, `../confidential-repair-loop-blueprint.md`, `../plan-v2-comparison.md`. Names, env vars and interfaces are fixed in [`CONTRACTS.md`](CONTRACTS.md) (it wins on conflicts). For a presentation, see [`docs/DEMO.md`](docs/DEMO.md).
 
+## Prototype v3: agent over MCP
+
+Branch `prototype-v3` adds an agent analyzer (Approach C). The agent calls read-only tools on four MCP servers (k8s, git, argo, repair) and ends with `propose_patch` or `escalate`. The operator still runs the guardrails, the PR, the human merge and the verify step. Design: [plan-v3/prototype-v3.md](../plan-v3/prototype-v3.md). Interfaces and as-built notes: [AGENT_CONTRACT.md](AGENT_CONTRACT.md).
+
+Run it:
+
+```bash
+export REPAIR_GITHUB_TOKEN=...        # as before
+export GROQ_API_KEY=...               # optional; without it the agent uses the claude CLI
+make demo-up                          # agent mode is the default in scripts/start_demo.sh
+```
+
+- `REPAIR_ANALYZER_MODE=agent` is the default. Set `REPAIR_ANALYZER_MODE=llm-first` for the single-shot analyzer.
+- `REPAIR_AGENT_PROVIDER=groq|claude-cli` picks the agent host. The dashboard header switch overrides it at runtime. If the chosen provider fails, the other one runs once (`REPAIR_AGENT_FALLBACK=0` turns this off).
+- The Groq free tier has a daily token limit. A long run late in the day can fall back to `claude-cli`.
+
+Check the tools, or run one investigation without the operator:
+
+```bash
+cd prototype
+uv run python -m repair_agent tools
+uv run python -m repair_agent investigate --namespace demo --pod <pod> --provider claude-cli
+```
+
 ## Architecture
 
 ```mermaid
