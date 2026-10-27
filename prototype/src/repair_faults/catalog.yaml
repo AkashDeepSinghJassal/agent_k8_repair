@@ -1,4 +1,4 @@
-# Fault catalog F1-F9 (CONTRACTS.md section 10).
+# Fault catalog F1-F10 (CONTRACTS.md section 10).
 #
 # Every `find` must occur exactly once in the target file as it is in the demo repo
 # (tests/faults/fixtures holds a snapshot). `replace` is the broken text; revert applies
@@ -155,3 +155,23 @@ faults:
     expected_class: OOM_KILLED
     expected_outcome: Healed
     correct_fix: "api-b limits.memory 32Mi -> 128Mi"
+
+  - id: F10
+    title: api Service renamed (frontend cannot resolve upstream)
+    description: >-
+      The api Service in deploy/demo/api.yaml is renamed from api to api-svc. The frontend
+      nginx config (ConfigMap frontend-nginx, unchanged) still does proxy_pass http://api:8000/,
+      and nginx resolves that name at startup. When the frontend pod (re)starts it exits with
+      "host not found in upstream" and goes into CrashLoopBackOff. The fix is in api.yaml,
+      a different file from the failing pod's own manifest (frontend.yaml) and from the
+      ConfigMaps it references, so a fixed evidence bundle cannot see the cause. The running
+      frontend pod must be restarted after Argo CD syncs for the crash to appear.
+    namespace: demo
+    target_file: deploy/demo/api.yaml
+    kind: git
+    breaking_edits:
+      - find: "kind: Service\nmetadata:\n  name: api\n"
+        replace: "kind: Service\nmetadata:\n  name: api-svc\n"
+    expected_class: CRASH_LOOP
+    expected_outcome: Healed
+    correct_fix: "api Service metadata.name api-svc -> api (frontend crashes, cause is in api.yaml)"

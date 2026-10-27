@@ -240,17 +240,20 @@ function faultCard(f) {
       h("dt", {}, "Correct fix"), h("dd", {}, f.correct_fix),
       h("dt", {}, "Incident"), h("dd", {}, f.incident || "-")),
     h("div", { class: "card-actions" }, mk("Inject", "inject"), mk("Revert", "revert"), restartShortcut(f)),
-    needsRestart(f) ? h("p", { class: "muted" }, "ConfigMap-only fault: after Argo CD syncs it, click Restart api pods to trigger the crash.") : null,
+    needsRestart(f) ? h("p", { class: "muted" }, `After Argo CD syncs it, click Restart ${restartTarget(f)} pods to trigger the crash.`) : null,
     err);
 }
 
-// F4 and F8 only change a ConfigMap, so the running api pod does not crash until it restarts.
-const needsRestart = (f) => ["F4", "F8"].includes(f.id);
+// F4 and F8 only change a ConfigMap (api); F10 renames the api Service, which the running frontend
+// resolved at startup. The affected pod does not crash until it restarts.
+const RESTART_TARGET = { F4: "api", F8: "api", F10: "frontend" };
+const needsRestart = (f) => f.id in RESTART_TARGET;
+const restartTarget = (f) => RESTART_TARGET[f.id];
 function restartShortcut(f) {
   if (!needsRestart(f)) return null;
   const err = h("span", { class: "inline-error", role: "alert" });
-  const b = h("button", { type: "button", class: "btn" }, "Restart api pods");
-  b.addEventListener("click", () => restartPods(f.namespace, "api", b, err));
+  const b = h("button", { type: "button", class: "btn" }, `Restart ${restartTarget(f)} pods`);
+  b.addEventListener("click", () => restartPods(f.namespace, restartTarget(f), b, err));
   return b;
 }
 

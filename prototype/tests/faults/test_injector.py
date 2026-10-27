@@ -23,7 +23,7 @@ from repair_faults.injector import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9"]
+GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9", "F10"]
 
 
 def _fixture_text(path: str) -> str:
@@ -64,14 +64,14 @@ def fixture_files() -> dict[str, str]:
 # --- catalog ---------------------------------------------------------------------------------
 
 
-def test_catalog_has_f1_to_f9_in_order():
-    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 10)]
+def test_catalog_has_f1_to_f10_in_order():
+    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 11)]
 
 
 def test_catalog_entries_validate_and_are_in_package():
     assert CATALOG_PATH.parent.name == "repair_faults"
     entries = load_catalog(CATALOG_PATH)
-    assert len(entries) == 9
+    assert len(entries) == 10
     for entry in entries:
         assert entry["expected_outcome"] in {"Healed", "Escalated", "Blocked"}
         assert entry["expected_class"] in injector.TAXONOMY
@@ -272,10 +272,10 @@ def test_default_git_reads_repo_and_branch_from_env(monkeypatch):
 # --- CLI ---------------------------------------------------------------------------------------
 
 
-def test_cli_list_prints_nine_faults(capsys):
+def test_cli_list_prints_ten_faults(capsys):
     assert cli_main(["list"]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
-    assert len(lines) == 9
+    assert len(lines) == 10
     assert lines[0].startswith("F1\tgit\tOOM_KILLED")
 
 
