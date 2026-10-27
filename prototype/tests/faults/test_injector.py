@@ -23,7 +23,7 @@ from repair_faults.injector import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9", "F10"]
+GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16"]
 
 
 def _fixture_text(path: str) -> str:
@@ -64,14 +64,14 @@ def fixture_files() -> dict[str, str]:
 # --- catalog ---------------------------------------------------------------------------------
 
 
-def test_catalog_has_f1_to_f10_in_order():
-    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 11)]
+def test_catalog_has_f1_to_f16_in_order():
+    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 17)]
 
 
 def test_catalog_entries_validate_and_are_in_package():
     assert CATALOG_PATH.parent.name == "repair_faults"
     entries = load_catalog(CATALOG_PATH)
-    assert len(entries) == 10
+    assert len(entries) == 16
     for entry in entries:
         assert entry["expected_outcome"] in {"Healed", "Escalated", "Blocked"}
         assert entry["expected_class"] in injector.TAXONOMY
@@ -89,6 +89,25 @@ def test_f9_targets_demo_b_and_matches_f1_class():
     assert f9["namespace"] == "demo-b"
     assert f9["target_file"] == "deploy/demo-b/api-b.yaml"
     assert f9["expected_class"] == f1["expected_class"]
+
+
+def test_f11_f12_are_cross_resource_faults():
+    f11, f12 = get_fault("F11"), get_fault("F12")
+    # The failing pods belong to frontend.yaml / api-b.yaml; the cause sits in a ConfigMap file.
+    assert f11["target_file"] == "deploy/demo/configmaps.yaml"
+    assert f12["target_file"] == "deploy/demo-b/configmaps.yaml" and f12["namespace"] == "demo-b"
+    assert f12["expected_class"] == "CONFIG_ERROR"
+
+
+def test_f15_adds_pvc_with_missing_storage_class(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/redis.yaml"], edits_for(get_fault("F15")))
+    assert "kind: PersistentVolumeClaim" in broken and "storageClassName: fast-ssd" in broken
+    assert "claimName: redis-data" in broken
+
+
+def test_f14_request_exceeds_node_and_keeps_limit_valid(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/worker.yaml"], edits_for(get_fault("F14")))
+    assert "memory: 64Gi" in broken and "memory: 96Gi" in broken
 
 
 def test_invalid_catalog_is_rejected(tmp_path):
@@ -272,10 +291,10 @@ def test_default_git_reads_repo_and_branch_from_env(monkeypatch):
 # --- CLI ---------------------------------------------------------------------------------------
 
 
-def test_cli_list_prints_ten_faults(capsys):
+def test_cli_list_prints_all_faults(capsys):
     assert cli_main(["list"]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
-    assert len(lines) == 10
+    assert len(lines) == 16
     assert lines[0].startswith("F1\tgit\tOOM_KILLED")
 
 

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: demo
+  labels:
+    app: redis
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    repair.example.dev/source-path: deploy/demo/redis.yaml
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--maxmemory", "32mb", "--maxmemory-policy", "allkeys-lru"]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 25m
+            limits:
+              memory: 64Mi
+              cpu: 250m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: demo
+  labels:
+    app: redis
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    repair.example.dev/source-path: deploy/demo/redis.yaml
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379

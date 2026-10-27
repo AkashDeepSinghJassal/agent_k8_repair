@@ -1,4 +1,4 @@
-# Fault catalog F1-F10 (CONTRACTS.md section 10).
+# Fault catalog F1-F16 (CONTRACTS.md section 10).
 #
 # Every `find` must occur exactly once in the target file as it is in the demo repo
 # (tests/faults/fixtures holds a snapshot). `replace` is the broken text; revert applies
@@ -175,3 +175,108 @@ faults:
     expected_class: CRASH_LOOP
     expected_outcome: Healed
     correct_fix: "api Service metadata.name api-svc -> api (frontend crashes, cause is in api.yaml)"
+
+  - id: F11
+    title: frontend-nginx ConfigMap key renamed (subPath mount breaks)
+    description: >-
+      In deploy/demo/configmaps.yaml the frontend-nginx key default.conf is renamed to
+      site.conf. The frontend Deployment (frontend.yaml, unchanged) still mounts that
+      ConfigMap with subPath default.conf. The running pod is unaffected; a restarted pod
+      crash-loops (runc: "error mounting ... /etc/nginx/conf.d/default.conf ... not a directory"). The cause is in a different file (configmaps.yaml) from
+      the failing pod's manifest.
+    namespace: demo
+    target_file: deploy/demo/configmaps.yaml
+    kind: git
+    breaking_edits:
+      - find: "  default.conf: |"
+        replace: "  site.conf: |"
+    expected_class: CRASH_LOOP
+    expected_outcome: Healed
+    correct_fix: "frontend-nginx ConfigMap key site.conf -> default.conf"
+
+  - id: F12
+    title: api-b-config ConfigMap renamed in demo-b
+    description: >-
+      The ConfigMap api-b-config in deploy/demo-b/configmaps.yaml is renamed to
+      api-b-config-v2, while the api-b Deployment (api-b.yaml, unchanged) still references
+      api-b-config through envFrom. A restarted api-b pod fails with
+      CreateContainerConfigError. Cross-resource cause in the second namespace; the
+      referenced ConfigMap no longer exists, so its diff cannot be attached to the evidence.
+    namespace: demo-b
+    target_file: deploy/demo-b/configmaps.yaml
+    kind: git
+    breaking_edits:
+      - find: "  name: api-b-config\n"
+        replace: "  name: api-b-config-v2\n"
+    expected_class: CONFIG_ERROR
+    expected_outcome: Healed
+    correct_fix: "ConfigMap metadata.name api-b-config-v2 -> api-b-config (api-b envFrom still references api-b-config)"
+
+  - id: F13
+    title: liveness probe on wrong port
+    description: >-
+      The api-b liveness probe port changes from 8000 to 8001. The app is healthy and logs
+      nothing wrong, but the kubelet kills the container after repeated probe failures, so
+      the pod restarts and ends in CrashLoopBackOff. The cause is only visible in pod
+      events ("Liveness probe failed ... connection refused") and the manifest.
+    namespace: demo-b
+    target_file: deploy/demo-b/api-b.yaml
+    kind: git
+    breaking_edits:
+      - find: "              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10"
+        replace: "              path: /healthz\n              port: 8001\n            initialDelaySeconds: 10"
+    expected_class: CRASH_LOOP
+    expected_outcome: Healed
+    correct_fix: "api-b livenessProbe port 8001 -> 8000"
+
+  - id: F14
+    title: worker resource request larger than any node
+    description: >-
+      The worker requests 64Gi of memory (limit 96Gi). The rolling update leaves the new
+      pod Pending with FailedScheduling "Insufficient memory" while the old pod keeps running.
+      The previous values are in git history; whether to lower them is a sizing decision.
+    namespace: demo
+    target_file: deploy/demo/worker.yaml
+    kind: git
+    breaking_edits:
+      - find: "memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi"
+        replace: "memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi"
+    expected_class: UNSCHEDULABLE
+    expected_outcome: Healed
+    correct_fix: "worker requests.memory 64Gi -> 32Mi and limits.memory 96Gi -> 64Mi (git history shows the previous values)"
+
+  - id: F15
+    title: redis PVC with non-existent StorageClass
+    description: >-
+      redis.yaml gains a PersistentVolumeClaim redis-data with storageClassName fast-ssd
+      (not present in the cluster) and the redis Deployment mounts it. The new redis pod
+      stays Pending because its claim is unbound.
+    namespace: demo
+    target_file: deploy/demo/redis.yaml
+    kind: git
+    breaking_edits:
+      - find: "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n"
+        replace: "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n"
+      - find: "              cpu: 250m\n---\n"
+        replace: "              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\n"
+      - find: "      targetPort: 6379\n"
+        replace: "      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi\n"
+    expected_class: UNSCHEDULABLE
+    expected_outcome: Healed
+    correct_fix: "redis-data PVC storageClassName fast-ssd -> standard (or drop the volume)"
+
+  - id: F16
+    title: runAsNonRoot on an image that runs as root
+    description: >-
+      The worker container gets securityContext runAsNonRoot: true, but python:3.12-alpine
+      runs as root and no runAsUser is set. The kubelet refuses to start it
+      (CreateContainerConfigError, "container has runAsNonRoot and image will run as root").
+    namespace: demo
+    target_file: deploy/demo/worker.yaml
+    kind: git
+    breaking_edits:
+      - find: "          command: [\"python\", \"/app/worker.py\"]\n"
+        replace: "          command: [\"python\", \"/app/worker.py\"]\n          securityContext:\n            runAsNonRoot: true\n"
+    expected_class: CONFIG_ERROR
+    expected_outcome: Healed
+    correct_fix: "worker securityContext: add runAsUser: 1000 (or remove runAsNonRoot)"

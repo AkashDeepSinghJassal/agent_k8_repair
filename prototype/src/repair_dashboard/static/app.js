@@ -245,8 +245,9 @@ function faultCard(f) {
 }
 
 // F4 and F8 only change a ConfigMap (api); F10 renames the api Service, which the running frontend
-// resolved at startup. The affected pod does not crash until it restarts.
-const RESTART_TARGET = { F4: "api", F8: "api", F10: "frontend" };
+// resolved at startup; F11 renames the key the frontend mounts, F12 renames the ConfigMap api-b references.
+// The affected pod does not fail until it restarts.
+const RESTART_TARGET = { F4: "api", F8: "api", F10: "frontend", F11: "frontend", F12: "api-b" };
 const needsRestart = (f) => f.id in RESTART_TARGET;
 const restartTarget = (f) => RESTART_TARGET[f.id];
 function restartShortcut(f) {
