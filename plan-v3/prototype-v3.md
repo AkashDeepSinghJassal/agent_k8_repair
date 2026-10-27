@@ -95,7 +95,7 @@ Two hosts run the same four servers, so the tools are the same for both.
 
 | Host | How it works | Notes |
 | --- | --- | --- |
-| `groq` | Own loop in Python. The official `mcp` SDK is the client (stdio). Groq chat completions with tool calling | Retries Groq errors 3 times. Shortens old tool results to fit the per-request limit (`REPAIR_AGENT_CTX_TOKENS`, default 5500) |
+| `groq` | Own loop in Python. The official `mcp` SDK is the client (stdio). Groq chat completions with tool calling | Retries Groq errors 6 times (`API_RETRIES = 6` in `groq_host.py`, each wait follows the server's hint). Shortens old tool results to fit the per-request limit (`REPAIR_AGENT_CTX_TOKENS`, default 5500) |
 | `claude-cli` | Runs `claude -p` with `--mcp-config`, `--strict-mcp-config`, `--tools ""`, `--allowedTools mcp__k8s mcp__git mcp__argo mcp__repair`, `--permission-mode dontAsk` | Uses the local Claude login. `ANTHROPIC_API_KEY` is removed from the child env. One retry on a non-zero exit |
 
 **Selection order.** The first valid value wins:
@@ -113,7 +113,7 @@ Models: groq uses `REPAIR_AGENT_MODEL` (default `openai/gpt-oss-120b`). claude-c
 
 **Automatic fallback.** If the chosen provider ends `failed` and `REPAIR_AGENT_FALLBACK` is not `0`, the runner runs the other provider once. `usage.fallback_from` records the first provider, and the error text names both. A run that falls back is a different run for the research. Record the provider that actually produced the result.
 
-**Groq free-tier limit (honest note).** On this account the Groq free tier allows 200k tokens per day and 8k tokens per request. The 8k per request limit is also the reason for the context shortening above. The daily limit is not in the code as a number. The code treats a long retry hint (over 90 s) as a daily-quota signal and fails at once, so the runner falls back. A long agent run late in the day can therefore use up the quota and fall back to `claude-cli`. Two results are then not comparable without the provider field.
+**Groq free-tier limit (honest note).** The limits below are the ones this account hit, as seen in Groq 429 and 413 errors during testing. They are not official published figures. A 429 reported 199,724 of 200,000 tokens per day used. The per-request limit of about 8k tokens (the 8000 TPM noted in the comment in `groq_host.py`) is also the reason for the context shortening above. The daily limit is not in the code as a number. The code treats a long retry hint (over 90 s) as a daily-quota signal and fails at once, so the runner falls back. A long agent run late in the day can therefore use up the quota and fall back to `claude-cli`. Two results are then not comparable without the provider field.
 
 ## 5. Why F10 exists
 
@@ -126,7 +126,7 @@ Fault F10 is the case the fixed bundle cannot solve. Commit `8e10b28` (PR #19) a
 
 So a fixed bundle cannot see the cause. An agent has a path to it: the crash shows in the pod logs, the frontend ConfigMap points at `api`, and a Service list shows no `api`. Whether the agent takes that path is the test for R2 and R1. The fix is `api-svc` back to `api` in `api.yaml`.
 
-The repo docs record a live result for F1 to F9 only. Live results for F10 to F16 are not recorded yet.
+End-to-end repair runs are recorded live for F1 to F9. F10 to F16 were injected and their symptoms observed live on the kind cluster when they were added (see `failure-taxonomy.md`). Their end-to-end repair runs are recorded in `prototype-v3-results.md` (being written).
 
 | ID | Title (from the catalog) | File with the cause | Expected class |
 | --- | --- | --- | --- |

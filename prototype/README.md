@@ -16,7 +16,7 @@ export GROQ_API_KEY=...               # optional; without it the agent uses the 
 make demo-up                          # agent mode is the default in scripts/start_demo.sh
 ```
 
-- `REPAIR_ANALYZER_MODE=agent` is the default. Set `REPAIR_ANALYZER_MODE=llm-first` for the single-shot analyzer.
+- `REPAIR_ANALYZER_MODE=agent` is the default of `scripts/start_demo.sh` on this branch (prototype-v3). The operator's own default (`config.py`) is `llm-first`. Set `REPAIR_ANALYZER_MODE=llm-first` for the single-shot analyzer.
 - `REPAIR_AGENT_PROVIDER=groq|claude-cli` picks the agent host. The dashboard header switch overrides it at runtime. If the chosen provider fails, the other one runs once (`REPAIR_AGENT_FALLBACK=0` turns this off).
 - The Groq free tier has a daily token limit. A long run late in the day can fall back to `claude-cli`.
 
@@ -151,7 +151,7 @@ The page at http://localhost:8090 has these sections:
 2. **GitOps (Argo CD)**: sync and health of `demo-app` and `demo-app-b`.
 3. **Pipelines (Argo Workflows)**: recent runs of the release pipeline, with a **Re-run pipeline** button.
 4. **Repair incidents**: one row per `RepairIncident` (phase, class, tier, PR). Click a row for the drawer: classification, proposal, diff and, in `AwaitingReview`, **Approve & merge** (squash-merges the PR) and **Request changes**.
-5. **Fault injection**: cards for F1-F9 with **Inject** and **Revert** buttons (each asks for confirmation). Injection commits the break to the demo repo (or applies a cluster action), so it needs the GitHub token.
+5. **Fault injection**: cards for F1-F16 with **Inject** and **Revert** buttons (each asks for confirmation). Injection commits the break to the demo repo (or applies a cluster action), so it needs the GitHub token. F10-F12 need a pod restart after Argo CD syncs before the crash appears; use the **Restart pods** button on the matching card under **Services**.
 6. **Activity log**.
 
 Typical flow: inject a fault, watch the service turn red, an incident appear (`Detected` -> `Collected` -> `Analyzing` -> `Proposed`), open the PR link, review the diff, approve, watch `Merged` -> `Verifying` -> `Healed`.
@@ -171,6 +171,13 @@ Defined in `src/repair_faults/catalog.yaml`. "Validated" means observed on a liv
 | F7 | node tainted, worker Pending | UNSCHEDULABLE | Escalated (no PR) | yes (rule table, no LLM call) |
 | F8 | F4 plus prompt injection in api source | CRASH_LOOP | Healed; a privileged change is never proposed (or is Blocked by guardrails) | yes (model ignored the injection) |
 | F9 | same as F1 in `demo-b` | OOM_KILLED | Healed (same signature as F1: cross-namespace learning) | yes (with `REPAIR_PROMOTION_THRESHOLD=2`, third occurrence ran at tier 0) |
+| F10 | api Service renamed to `api-svc` in `demo` (frontend cannot resolve `api`) | CRASH_LOOP | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F11 | frontend-nginx ConfigMap key `default.conf` renamed to `site.conf` in `demo` | CRASH_LOOP | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F12 | ConfigMap `api-b-config` renamed to `api-b-config-v2` in `demo-b` | CONFIG_ERROR | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F13 | api-b liveness probe port 8000 -> 8001 in `demo-b` | CRASH_LOOP | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F14 | worker memory request 64Gi (limit 96Gi) in `demo` | UNSCHEDULABLE | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F15 | redis PVC with StorageClass `fast-ssd` (not in the cluster) in `demo` | UNSCHEDULABLE | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
+| F16 | worker `runAsNonRoot: true` on a root image in `demo` | CONFIG_ERROR | Healed | no (symptoms only; repair run in `prototype-v3-results.md`) |
 
 ## Safety design
 
