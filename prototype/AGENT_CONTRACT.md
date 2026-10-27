@@ -137,3 +137,10 @@ Add a fault whose cause is **not** in the operator's fixed evidence bundle (so o
 ## Testing
 
 Light. Unit tests with fakes for tool logic and the host loops; no network in default tests. Live checks are marked `live`.
+
+## Agent package notes (as built)
+
+- `AgentResult` lives in `repair_agent/result.py` and is re-exported from `repair_agent.runner`. Tool names shown to the LLM and in `trace[].tool` are the bare names (`k8s_logs`, `git_read`, ...); the claude host strips `mcp__<server>__`.
+- Groq host extras: `REPAIR_AGENT_CTX_TOKENS` (default 5500, old tool results are shortened to stay under Groq free-tier 8000 tokens/request), `REPAIR_AGENT_REASONING_EFFORT` (default medium), `REPAIR_AGENT_DEBUG=1` (progress to stderr). 429 waits follow the server hint (up to 6 retries); a hint over 90 s (daily quota) fails immediately so the runner falls back. Identical tool call repeated a 3rd time gets an error telling the model to finish.
+- Claude host: `claude -p` with prompt on stdin, `--tools ""` (no built-ins), `--allowedTools mcp__k8s mcp__git mcp__argo mcp__repair`, `--permission-mode dontAsk`, `--strict-mcp-config`.
+- `python -m repair_agent tools` lists tools; `python -m repair_agent investigate --namespace N --pod P [--provider ...] [--json]`.
