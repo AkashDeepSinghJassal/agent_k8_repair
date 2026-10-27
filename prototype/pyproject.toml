@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml",
     "httpx",
     "groq>=1.7.0",
+    "mcp>=1.20",
 ]
 
 [dependency-groups]
@@ -29,7 +30,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/repair_operator", "src/repair_dashboard", "src/repair_faults"]
+packages = ["src/repair_operator", "src/repair_dashboard", "src/repair_faults", "src/repair_mcp", "src/repair_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
