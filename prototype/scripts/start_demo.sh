@@ -68,6 +68,43 @@ export REPAIR_PR_POLL_SECONDS="${REPAIR_PR_POLL_SECONDS:-5}"
 export REPAIR_VERIFY_WINDOW_SECONDS="${REPAIR_VERIFY_WINDOW_SECONDS:-5}"
 export REPAIR_COOLDOWN_SECONDS="${REPAIR_COOLDOWN_SECONDS:-5}"
 
+# Command-line patterns of the demo processes (matches the start commands below). Catches stale runs
+# from earlier sessions that are not recorded in the pid files.
+DEMO_PATTERNS=("kopf run.*repair_operator" "uvicorn repair_dashboard")
+DASHBOARD_PORT=8090
+
+stop_stale_procs() {
+  local pids="" pat p alive i
+  for pat in "${DEMO_PATTERNS[@]}"; do
+    pids="$pids $(pgrep -f "$pat" 2>/dev/null || true)"
+  done
+  pids="$(echo $pids | tr ' ' '\n' | sort -un | tr '\n' ' ')"
+  [ -n "${pids// /}" ] || return 0
+  echo "found existing demo processes, stopping them:"
+  for p in $pids; do ps -o pid=,command= -p "$p" 2>/dev/null || true; done
+  for p in $pids; do kill "$p" 2>/dev/null || true; done
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    alive=""
+    for p in $pids; do
+      if kill -0 "$p" 2>/dev/null; then alive="$alive $p"; fi
+    done
+    [ -n "$alive" ] || break
+    sleep 1
+  done
+  if [ -n "$alive" ]; then
+    echo "still running after 10 s, sending KILL:$alive"
+    for p in $alive; do kill -KILL "$p" 2>/dev/null || true; done
+  fi
+}
+
+check_port_free() {
+  local holder
+  holder="$(lsof -ti "tcp:$DASHBOARD_PORT" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true)"
+  if [ -n "${holder// /}" ]; then
+    die "port $DASHBOARD_PORT is held by a process that is not part of the demo (pid(s):$holder). Stop it and rerun."
+  fi
+}
+
 start() { # name, command...
   local name="$1"
   shift
@@ -80,6 +117,9 @@ start() { # name, command...
   echo $! >"$pidfile"
   echo "started $name (pid $!), log: $RUN_DIR/$name.log"
 }
+
+stop_stale_procs
+check_port_free
 
 start operator uv run kopf run -m repair_operator.main --all-namespaces --verbose
 start dashboard uv run uvicorn repair_dashboard.app:app --port 8090
