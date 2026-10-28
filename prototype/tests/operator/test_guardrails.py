@@ -239,6 +239,12 @@ def test_grounded_values_accepts_value_from_diff():
     assert _cm_run("redis://redis:6379", DIFF).ok
 
 
+def test_grounded_values_accepts_recomposed_host_and_port():
+    ev = "api-svc  ClusterIP  ports=['8000->8000']"
+    assert _cm_run("http://api-svc:8000/", ev).ok
+    assert _cm_run("http://other:8000/", ev).rejected_by == "grounded_values"
+
+
 def test_related_files_finds_configmap_source_and_hides_secret():
     from types import SimpleNamespace as N
 

@@ -139,12 +139,27 @@ def added_literals(current_text: str, new_text: str) -> list[str]:
     return list(out)
 
 
+_URL_PARTS_RE = re.compile(r"^(?:[A-Za-z][\w+.-]*://)?(?:[^@/\s]*@)?([A-Za-z0-9][\w.-]*)(?::(\d{2,5}))?(?:[/?#].*)?$")
+
+
+def _components_grounded(lit: str, text: str) -> bool:
+    """A recomposed URL or host:port is grounded when its host and port each appear as whole tokens in the text
+    (a Service rename: host ``api-svc`` and port ``8000`` are in the evidence, ``http://api-svc:8000/`` is not)."""
+    m = _URL_PARTS_RE.match(lit.rstrip(";"))
+    if not m:
+        return False
+    host, port = m.group(1), m.group(2)
+    if not (host and port):  # bare scheme URLs without a port stay verbatim-only
+        return False
+    return all(re.search(rf"(?<![\w.-]){re.escape(x)}(?![\w.-])", text) for x in (host, port))
+
+
 def grounded_values(proposal: Proposal, current_text: str, new_text: str, evidence_text: str) -> tuple[bool, str]:
     """Every literal added by the edits must appear verbatim in the evidence or the original file."""
     if proposal.template:  # template-computed values (new_limit clamps, tags from the diff) are exempt
         return True, "template edit (exempt)"
     for lit in added_literals(current_text, new_text):
-        if lit not in evidence_text and lit not in current_text:
+        if lit not in evidence_text and lit not in current_text and not _components_grounded(lit, evidence_text + "\n" + current_text):
             return False, f"ungrounded value {lit!r}: it appears nowhere in the evidence or the original file"
     return True, "ok"
 
