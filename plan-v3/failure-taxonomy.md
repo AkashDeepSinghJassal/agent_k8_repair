@@ -62,7 +62,7 @@ Because ConfigMap-level faults (F11, F12) leave the running pod untouched, the f
 
 Read directly: none beyond search results; every source below was seen only as a search summary unless stated.
 
-- Cloud-OpsBench, 452 fault cases / 40 root causes (v1; v2 reportedly 754 cases / 57 types, unverified): https://arxiv.org/abs/2603.00468 (search summary only)
+- Cloud-OpsBench, v2 (22 Aug 2026): 754 fault cases / 57 fault types in 8 categories (v1 had 452 / 40): https://arxiv.org/abs/2603.00468 (read in full; see research/cloud-opsbench-overview.md)
 - Mutiny! How does Kubernetes fail, and what can we do about it?: https://arxiv.org/pdf/2404.11169 (search summary only)
 - SREGym, live benchmark of 90 SRE problems: https://arxiv.org/abs/2605.07161 (search summary only)
 - AIOpsLab (fault library via ChaosMesh, DeathStarBench): https://arxiv.org/html/2501.06706v1 (search summary only)

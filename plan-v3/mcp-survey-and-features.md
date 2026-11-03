@@ -41,7 +41,7 @@ The current revision is **2026-07-28** [read: [changelog](https://modelcontextpr
 **Kubernetes-specific agents.** HolmesGPT, kagent and K8sGPT (investigation, MCP toolsets); Kubernaut (operator plus agent that picks workflows from a catalog, runs them and checks the effect); a read-only Kubernetes MCP server deployed by GitOps (sovereign-selfheal demo). Details and links are in the Approach C note.
 
 **Benchmarks for agentic diagnosis** [summary]:
-- Cloud-OpsBench ([arXiv 2603.00468](https://arxiv.org/pdf/2603.00468)): 452 fault cases over 40 root-cause types on a deterministic digital twin of a Kubernetes environment.
+- Cloud-OpsBench ([arXiv 2603.00468](https://arxiv.org/pdf/2603.00468)): 754 fault cases over 57 fault types in v2 (452 / 40 in v1), replayed from state snapshots of a real Kubernetes cluster.
 - SREGym ([arXiv 2605.07161](https://arxiv.org/pdf/2605.07161)): a live benchmark for SRE agents. Cited via another paper; I did not open it.
 - A multi-dataset benchmark for microservice failure diagnosis ([arXiv 2606.29193](https://arxiv.org/pdf/2606.29193)).
 - IBM ITBench, reported at 13.8% of 42 real SRE tasks resolved [vendor blog, secondary]. Treat as a rough signal only.

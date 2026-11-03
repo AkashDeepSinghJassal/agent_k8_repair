@@ -107,7 +107,7 @@ Industry precedent: Microsoft's **RCACopilot** ([paper](https://www.microsoft.co
 ### 3.3 Testing fixes before reality: twins and sandboxes
 
 - **NetArena** ([arXiv 2506.03231](https://arxiv.org/pdf/2506.03231)) runs a kind cluster as a faithful simulator; the agent diagnoses injected faults, applies a command, sees the new state [summary].
-- **Cloud-OpsBench** ([arXiv 2603.00468](https://arxiv.org/pdf/2603.00468)) builds a deterministic "digital twin" from state snapshots: 452 faults, 40 root-cause types [summary].
+- **Cloud-OpsBench** ([arXiv 2603.00468](https://arxiv.org/pdf/2603.00468)) builds a deterministic "digital twin" from state snapshots: 754 cases, 57 fault types in v2 (452 / 40 in v1) [read; see research/cloud-opsbench-overview.md].
 - I found **no published system that learns a model of "change → effect" for Kubernetes** and uses it to predict a fix's outcome before applying it.
 
 ### 3.4 Generating failures to learn from: agentic chaos
