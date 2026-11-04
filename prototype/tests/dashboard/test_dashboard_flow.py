@@ -20,7 +20,7 @@ def client(tmp_path, monkeypatch):
 
 def _write_flow():
     flow.emit("ri-1", "demo", "detected", title="api crashed", data={"fault": "F4"})
-    flow.emit("ri-1", "demo", "route", title="T3", tier="T3", data={"chosen": "T3", "reason": "no playbook"})
+    flow.emit("ri-1", "demo", "route", title="T3", tier="T3", data={"chosen_tier": "T3", "reason": "no playbook"})
     s = flow.emit("ri-1", "demo", "agent_start", title="start", tier="T3")
     flow.emit("ri-1", "demo", "tool_call", title="k8s.get_logs", tier="T3", parent=s, data={"tool": "get_logs", "args": {"a": 1}, "result": "x"})
     flow.emit("ri-1", "demo", "agent_end", title="end", tier="T3", parent=s, data={"input_tokens": 100, "output_tokens": 20})
@@ -64,3 +64,16 @@ def test_playbooks_from_module(client, monkeypatch):
     assert client.get("/api/playbooks").json()[0]["state"] == "T2"
     assert client.get("/api/playbooks/pb-1").json()["history"] == [{"event": "captured"}]
     assert client.get("/api/playbooks/zzz").status_code == 404
+
+
+def test_detected_gets_fault_from_active_faults(client, tmp_path):
+    import json
+    import time
+
+    from repair_operator.main import active_fault
+
+    (tmp_path / "active-faults.json").write_text(json.dumps({
+        "demo": {"fault": "F4", "ts": time.time()}, "old": {"fault": "F1", "ts": time.time() - 3600}}))
+    assert active_fault("demo") == "F4"
+    assert active_fault("old") is None
+    assert active_fault("other") is None

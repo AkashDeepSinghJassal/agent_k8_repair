@@ -5,8 +5,10 @@ Handlers are thin; the logic lives in plain functions so it is unit-testable.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 
 import kopf
@@ -62,6 +64,18 @@ def analyze_hook(body: dict, patch: dict) -> None:
     )
 
 
+def active_fault(namespace: str, max_age_s: float = 1800) -> str | None:
+    """Fault id the dashboard injected into ``namespace`` in the last 30 min (active-faults.json). Never raises."""
+    try:
+        path = get_settings().state_dir / "active-faults.json"
+        ent = json.loads(path.read_text()).get(namespace) or {}
+        if ent.get("fault") and time.time() - float(ent.get("ts", 0)) < max_age_s:
+            return str(ent["fault"])
+    except (OSError, ValueError, TypeError, AttributeError):
+        log.debug("active-faults read failed", exc_info=True)
+    return None
+
+
 def emit_detected(body: dict) -> None:
     """Flow trace: ``detected`` event from the new incident's spec. Never raises."""
     try:
@@ -69,11 +83,15 @@ def emit_detected(body: dict) -> None:
 
         spec = body.get("spec") or {}
         src = spec.get("source") or {}
+        data = {"source": {k: src.get(k) for k in ("kind", "name", "owner", "container", "reason", "classHint")},
+                "fingerprint": spec.get("fingerprint")}
+        fault = active_fault((body.get("metadata") or {}).get("namespace") or src.get("namespace") or "")
+        if fault:
+            data["fault"] = fault
         flow.emit_for(
             body, "detected",
             title=f"Detected {src.get('reason') or 'failure'} on {src.get('kind', 'Pod')} {src.get('name', '')}".strip(),
-            data={"source": {k: src.get(k) for k in ("kind", "name", "owner", "container", "reason", "classHint")},
-                  "fingerprint": spec.get("fingerprint")},
+            data=data,
         )
     except Exception:
         log.debug("detected flow event failed", exc_info=True)

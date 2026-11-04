@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -199,6 +200,26 @@ def _refresh_argocd(entry: dict, reader: KubeReader) -> bool:
         return False
 
 
+def _record_active_fault(namespace: str, fault_id: str | None) -> None:
+    """Write <state_dir>/active-faults.json so the operator can tag `detected` events. Best effort."""
+    try:
+        from repair_operator.config import get_settings
+
+        path = Path(get_settings().state_dir).expanduser() / "active-faults.json"
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            data = {}
+        if fault_id:
+            data[namespace] = {"fault": fault_id, "ts": time.time()}
+        else:
+            data.pop(namespace, None)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+    except Exception:
+        logging.getLogger(__name__).debug("active-faults write failed", exc_info=True)
+
+
 @app.post("/api/faults/{fault_id}/inject")
 def inject_fault(fault_id: str, backend: FaultBackend = Backend, reader: KubeReader = Reader):
     try:
@@ -211,6 +232,7 @@ def inject_fault(fault_id: str, backend: FaultBackend = Backend, reader: KubeRea
                 return {"id": fault_id, "status": "already-injected", "injectedAt": backend.state.mark(fault_id)}
             result = faults.inject(fault_id, git=backend.git, kubectl=backend.kubectl)
             refreshed = _refresh_argocd(entry, reader)
+            _record_active_fault(entry["namespace"], fault_id)
             return {**result, "status": "injected", "injectedAt": backend.state.mark(fault_id), "argocdRefreshed": refreshed}
     except faults.FaultError as exc:
         raise _fault_error(exc) from exc
@@ -227,6 +249,7 @@ def revert_fault(fault_id: str, backend: FaultBackend = Backend, reader: KubeRea
             result = faults.revert(fault_id, git=backend.git, kubectl=backend.kubectl)
             backend.state.clear(fault_id)
             refreshed = _refresh_argocd(entry, reader)
+            _record_active_fault(entry["namespace"], None)
             return {**result, "status": "reverted", "argocdRefreshed": refreshed}
     except faults.FaultError as exc:
         raise _fault_error(exc) from exc

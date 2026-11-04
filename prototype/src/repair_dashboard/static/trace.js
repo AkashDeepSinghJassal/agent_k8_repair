@@ -100,7 +100,7 @@ function flowFacts(events) {
     }
   }
   const lastEv = events.length ? events.reduce((a, b) => (Date.parse(b.ts) >= Date.parse(a.ts) ? b : a)) : null;
-  const tier = (routeEv && routeEv.data && routeEv.data.chosen) || (propEv && propEv.data && propEv.data.tier)
+  const tier = (routeEv && routeEv.data && (routeEv.data.chosen_tier ?? routeEv.data.tier ?? routeEv.data.chosen)) || (propEv && propEv.data && propEv.data.tier)
     || (events.find((e) => e.tier) || {}).tier || null;
   const fault = det && det.data && det.data.fault;
   const phase = outcome ? (outcome.data && outcome.data.phase) || outcome.title : null;
@@ -144,7 +144,7 @@ function eventBody(e) {
 function inlineExtra(e) {
   const d = e.data || {};
   if (e.kind === "route") {
-    const bits = [h("strong", {}, `Chosen tier: ${d.chosen || e.tier || "?"}`)];
+    const bits = [h("strong", {}, `Chosen tier: ${d.chosen_tier ?? d.tier ?? d.chosen ?? e.tier || "?"}`)];
     if (d.reason) bits.push(h("div", {}, d.reason));
     const meta = [d.playbook_id && `playbook ${d.playbook_id}`, d.playbook_state && `state ${d.playbook_state}`, d.fallback_from && `fallback from ${d.fallback_from}`,
       d.signature && `signature ${shortSig(d.signature)}`].filter(Boolean);

@@ -3,7 +3,7 @@
     uv run python scripts/demo_flow_fixture.py /tmp/repair-demo-state
     REPAIR_STATE_DIR=/tmp/repair-demo-state uv run uvicorn repair_dashboard.app:app --port 8095
 
-Only flow files are written (plus a best-effort playbook if repair_operator.playbooks is importable).
+Only flow files are written (plus a best-effort playbook via PlaybookStore).
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def t3_flow(state: Path, start: datetime) -> str:
            data={"files": ["deploy/demo/api.yaml", "deploy/demo/configmaps.yaml", "deploy/demo/service.yaml"],
                  "events_count": 14, "log_lines": 120, "configmaps": ["api-config"]})
     w.emit("route", "No playbook for this signature: running the full agent (T3)", tier="T3", after=0.3,
-           data={"signature": SIG, "playbook_id": None, "playbook_state": None, "chosen": "T3",
+           data={"signature": SIG, "playbook_id": None, "playbook_state": None, "chosen_tier": "T3",
                  "reason": "no playbook for this signature yet; every failure starts as a T3 agent run",
                  "fallback_from": None})
     start_id = w.emit("agent_start", "Agent investigating with claude-cli", tier="T3", after=0.2,
@@ -153,7 +153,7 @@ def t1_flow(state: Path, start: datetime) -> str:
     w.emit("evidence", "Collected 3 files, 11 events, 120 log lines", after=1.1, ms=1000,
            data={"files": ["deploy/demo/api.yaml", "deploy/demo/configmaps.yaml"], "events_count": 11, "log_lines": 120, "configmaps": ["api-config"]})
     r = w.emit("route", "Playbook pb-4f3a91 is promoted to T1: replaying without an LLM", tier="T1", after=0.2,
-               data={"signature": SIG, "playbook_id": "pb-4f3a91", "playbook_state": "T1", "chosen": "T1",
+               data={"signature": SIG, "playbook_id": "pb-4f3a91", "playbook_state": "T1", "chosen_tier": "T1",
                      "reason": "promoted to T1 after 2 verified hybrid runs whose LLM values equalled the extract rule",
                      "fallback_from": None})
     tool(w, r, "T1", 1, "k8s", "get_logs", {"namespace": NS, "pod": "${pod}", "container": "api", "tail": 120}, LOGS, 190)
@@ -177,10 +177,10 @@ def t1_flow(state: Path, start: datetime) -> str:
     return inc
 
 
-def seed_playbook() -> None:
+def seed_playbook(state: Path) -> None:
     try:
         from repair_operator import playbooks as pb
-        now = datetime.now(UTC).isoformat()
+        now = pb.now_iso()
         play = pb.Playbook(
             id="pb-4f3a91", signature=SIG, cls="CONFIG_ERROR", state="T1",
             steps=[pb.Step("k8s", "get_logs", {"namespace": "${namespace}", "pod": "${pod}", "container": "${container}"}),
@@ -191,9 +191,10 @@ def seed_playbook() -> None:
             action_sequence=["get_logs", "git_read", "git_diff"],
             runs={"t3_ok": 1, "t2_ok": 2, "t1_ok": 1, "fail": 0, "edited": 0}, consistency=1.0,
             history=[{"ts": now, "event": "captured", "from": None, "to": "T3", "reason": "first healed run", "incident": "ri-f4-first"},
-                     {"ts": now, "event": "promoted", "from": "T3", "to": "T1", "reason": "3 verified runs", "incident": "ri-f4-replay"}],
+                     {"ts": now, "event": "promoted", "from": "T3", "to": "T2", "reason": "2 verified runs", "incident": "ri-f4-second"},
+                     {"ts": now, "event": "promoted", "from": "T2", "to": "T1", "reason": "3 verified runs", "incident": "ri-f4-replay"}],
             created=now, updated=now)
-        pb.upsert(play)
+        pb.PlaybookStore(state / "playbooks.db").upsert(play)
         print("seeded playbook pb-4f3a91")
     except Exception as exc:  # noqa: BLE001
         print(f"playbook not seeded ({type(exc).__name__}: {exc})")
@@ -209,7 +210,7 @@ def main() -> None:
     a = t3_flow(state, now - timedelta(minutes=12))
     b = t1_flow(state, now - timedelta(minutes=4))
     print(f"wrote flows {a} and {b} in {state}/flows")
-    seed_playbook()
+    seed_playbook(state)
     print(f"REPAIR_STATE_DIR={state} uv run uvicorn repair_dashboard.app:app --port 8095")
 
 
