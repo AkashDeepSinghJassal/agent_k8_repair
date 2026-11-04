@@ -182,7 +182,7 @@ Blast-radius control moves from runtime checks to logic that "can be checked bef
 - **No baseline or ablation.** The 70% cost reduction is observational.
 - **Thresholds are defaults**, explicitly to be re-derived per domain.
 - **Writes without human approval at Types 1 and 2**, which is a different risk posture from ours (reviewed pull requests always).
-- It is a short paper; the companion paper (arXiv 2606.09122) may hold the system details. I have not read it.
+- It is a short paper; the companion paper (arXiv 2606.09122) describes the system's architecture but not the extraction algorithm either, see [hyperscale-incident-resolution-overview.md](hyperscale-incident-resolution-overview.md).
 
 ## 5. What we take into the design (prototype v4)
 
@@ -211,5 +211,5 @@ Thesis research questions it touches:
 ## References
 
 - A. Malik, *Progressive Crystallization: Turning Agent Exploration into Deterministic, Lower-Cost Workflows in Production*, arXiv:2607.07052, 2026. [PDF](https://arxiv.org/pdf/2607.07052)
-- A. Malik, *Autonomous incident resolution at hyperscale: An agentic AI architecture for network operations*, arXiv:2606.09122, 2026 (cited by the paper; not read).
+- A. Malik, *Autonomous incident resolution at hyperscale: An agentic AI architecture for network operations*, arXiv:2606.09122, 2026, see [hyperscale-incident-resolution-overview.md](hyperscale-incident-resolution-overview.md).
 - Our documents: [plan-v3/approach-c-and-hybrid.md](../plan-v3/approach-c-and-hybrid.md), [plan-v3/prototype-v3.md](../plan-v3/prototype-v3.md), [plan-v3/prototype-v3-results.md](../plan-v3/prototype-v3-results.md), [confidential-repair-loop-blueprint.md](../confidential-repair-loop-blueprint.md).
