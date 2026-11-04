@@ -183,8 +183,8 @@ def test_inject_f1_commits_broken_api_manifest(fixture_files):
     path, text, message = git.commits[0]
     assert path == "deploy/demo/api.yaml"
     assert "memory: 32Mi" in text and "memory: 128Mi" not in text
-    assert message.startswith("fault(F1): memory limit too low")
-    assert "Repair-Fault: F1" in message
+    assert message == "deploy(api): adjust resource limits"
+    assert "F1" not in message and "fault" not in message.lower()
 
 
 def test_revert_f1_restores_fixture_bytes(fixture_files):
@@ -411,3 +411,10 @@ def test_f24_anti_affinity_needs_two_replicas_and_required_rule(fixture_files):
     broken = apply_edits(fixture_files["deploy/demo/worker.yaml"], edits_for(get_fault("F24")))
     assert "replicas: 2" in broken and "requiredDuringSchedulingIgnoredDuringExecution" in broken
     assert "topologyKey: kubernetes.io/hostname" in broken
+
+
+def test_default_commit_message_is_neutral(fixture_files):
+    git = FakeGit(fixture_files)
+    inject("F2", git=git)
+    message = git.commits[0][2]
+    assert message.startswith("chore(") and "F2" not in message and "fault" not in message.lower()

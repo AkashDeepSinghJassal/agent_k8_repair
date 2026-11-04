@@ -77,3 +77,15 @@ def test_detected_gets_fault_from_active_faults(client, tmp_path):
     assert active_fault("demo") == "F4"
     assert active_fault("old") is None
     assert active_fault("other") is None
+
+
+def test_cli_records_and_clears_active_fault(client, monkeypatch):
+    from repair_faults import __main__ as cli
+    from repair_operator.main import active_fault
+
+    monkeypatch.setattr(cli, "inject", lambda fid: {"id": fid})
+    monkeypatch.setattr(cli, "revert", lambda fid: {"id": fid})
+    assert cli.main(["inject", "F4"]) == 0
+    assert active_fault("demo") == "F4"
+    assert cli.main(["revert", "F4"]) == 0
+    assert active_fault("demo") is None

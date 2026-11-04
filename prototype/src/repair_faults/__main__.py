@@ -6,7 +6,8 @@ import argparse
 import json
 import sys
 
-from repair_faults.injector import FaultError, inject, list_faults, revert
+from repair_faults.active import record_active_fault
+from repair_faults.injector import FaultError, get_fault, inject, list_faults, revert
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -24,7 +25,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{entry['id']}\t{entry['kind']}\t{entry['expected_class']}\t{entry['title']}")
             return 0
         action = inject if args.command == "inject" else revert
-        print(json.dumps(action(args.fault_id), indent=2, default=str))
+        result = action(args.fault_id)
+        record_active_fault(get_fault(args.fault_id)["namespace"], args.fault_id if args.command == "inject" else None)
+        print(json.dumps(result, indent=2, default=str))
         return 0
     except FaultError as exc:
         print(f"error: {exc}", file=sys.stderr)

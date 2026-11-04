@@ -36,7 +36,7 @@ REQUIRED_KEYS = {
     "expected_outcome",
     "correct_fix",
 }
-# Optional keys: restart_target (deployment to restart after Argo syncs), evidence_milestones (2-4 facts a
+# Optional keys: commit_message (neutral inject commit title; default chore(<dir>): update <file>), restart_target (deployment to restart after Argo syncs), evidence_milestones (2-4 facts a
 # correct investigation must establish), post_inject_commands / post_revert_commands (kubectl argv lists run
 # after the commit of a git fault, e.g. noise), submit_workflow + argo_app (create a release-pipeline run once
 # Argo CD has synced the injected commit (submit_delay_seconds waits longer, e.g. for terminating pods to leave the Service), for faults whose symptom is a failing workflow step).
@@ -153,6 +153,9 @@ def _validate_optional(entry: dict[str, Any]) -> None:
         cmds = entry.get(key)
         if cmds is not None and not (isinstance(cmds, list) and all(isinstance(c, list) and c for c in cmds)):
             raise FaultError(f"{fid}: {key} must be a list of kubectl argv lists")
+    message = entry.get("commit_message")
+    if message is not None and not (isinstance(message, str) and message.strip()):
+        raise FaultError(f"{fid}: commit_message must be a non-empty string")
     delay = entry.get("submit_delay_seconds", 0)
     if not isinstance(delay, int) or delay < 0:
         raise FaultError(f"{fid}: submit_delay_seconds must be a non-negative integer")
@@ -205,7 +208,11 @@ def is_injected(entry: dict[str, Any], text: str) -> bool:
 def _commit_message(entry: dict[str, Any], revert: bool) -> str:
     if revert:
         return f"fault({entry['id']}): revert {entry['title']}\n\nRepair-Fault-Revert: {entry['id']}"
-    return f"fault({entry['id']}): {entry['title']}\n\nRepair-Fault: {entry['id']}"
+    # Neutral on purpose: the agent can read commits with git_log, so the message must not name the fault.
+    if entry.get("commit_message"):
+        return entry["commit_message"]
+    target = entry["target_file"]
+    return f"chore({os.path.basename(os.path.dirname(target)) or 'repo'}): update {os.path.basename(target)}"
 
 
 def _wait_synced(kube: KubectlRunner, app: str, sha: str) -> bool:

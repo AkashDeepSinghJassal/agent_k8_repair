@@ -61,7 +61,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-svc
+  name: api
   namespace: demo
   labels:
     app: api

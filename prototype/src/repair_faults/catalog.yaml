@@ -23,6 +23,7 @@ faults:
       ballast (about 60 MiB) gets the container OOM-killed.
     namespace: demo
     target_file: deploy/demo/api.yaml
+    commit_message: "deploy(api): adjust resource limits"
     kind: git
     breaking_edits:
       - find: "memory: 128Mi"
@@ -82,6 +83,7 @@ faults:
       "DB_URL not set".
     namespace: demo
     target_file: deploy/demo/configmaps.yaml
+    commit_message: "config: tidy api configmap"
     kind: git
     breaking_edits:
       - find: "  DB_URL: redis://redis:6379\n  LOG_LEVEL: info"
@@ -203,9 +205,8 @@ faults:
   - id: F10
     title: api Service renamed (frontend cannot resolve upstream)
     description: >-
-      The api Service in deploy/demo/api.yaml is renamed from api-svc to api (the demo repo baseline
-      is api-svc since the F10 repair was merged and the frontend proxy_pass was changed to match).
-      The frontend nginx config (ConfigMap frontend-nginx, unchanged) still does proxy_pass http://api-svc:8000/,
+      The api Service in deploy/demo/api.yaml is renamed from api to api-svc.
+      The frontend nginx config (ConfigMap frontend-nginx, unchanged) still does proxy_pass http://api:8000/,
       and nginx resolves that name at startup. When the frontend pod (re)starts it exits with
       "host not found in upstream" and goes into CrashLoopBackOff. The fix is in api.yaml,
       a different file from the failing pod's own manifest (frontend.yaml) and from the
@@ -213,18 +214,19 @@ faults:
       frontend pod must be restarted after Argo CD syncs for the crash to appear.
     namespace: demo
     target_file: deploy/demo/api.yaml
+    commit_message: "deploy(api): rename service"
     kind: git
     breaking_edits:
-      - find: "kind: Service\nmetadata:\n  name: api-svc\n"
-        replace: "kind: Service\nmetadata:\n  name: api\n"
+      - find: "kind: Service\nmetadata:\n  name: api\n"
+        replace: "kind: Service\nmetadata:\n  name: api-svc\n"
     expected_class: CRASH_LOOP
     expected_outcome: Healed
-    correct_fix: "api Service metadata.name api -> api-svc (frontend crashes, cause is in api.yaml)"
+    correct_fix: "api Service metadata.name api-svc -> api (frontend crashes, cause is in api.yaml)"
     restart_target: frontend
     evidence_milestones:
-      - "frontend nginx exits with \"host not found in upstream api-svc\""
-      - "frontend-nginx proxy_pass targets api-svc"
-      - "the api Service in api.yaml was renamed to api"
+      - "frontend nginx exits with \"host not found in upstream api\""
+      - "frontend-nginx proxy_pass targets api"
+      - "the api Service in api.yaml was renamed to api-svc"
 
   - id: F11
     title: frontend-nginx ConfigMap key renamed (subPath mount breaks)
@@ -236,6 +238,7 @@ faults:
       the failing pod's manifest.
     namespace: demo
     target_file: deploy/demo/configmaps.yaml
+    commit_message: "config: rename frontend nginx config key"
     kind: git
     breaking_edits:
       - find: "  default.conf: |"
@@ -301,6 +304,7 @@ faults:
       The previous values are in git history; whether to lower them is a sizing decision.
     namespace: demo
     target_file: deploy/demo/worker.yaml
+    commit_message: "deploy(worker): tune resource requests"
     kind: git
     breaking_edits:
       - find: "memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi"
