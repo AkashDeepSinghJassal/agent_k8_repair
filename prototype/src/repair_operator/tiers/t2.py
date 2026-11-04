@@ -88,7 +88,7 @@ def make_llm(provider: str | None = None) -> LlmFn:
 
 
 def _claude(prompt: str) -> LlmReply:
-    from repair_agent.claude_host import child_env, find_claude
+    from repair_agent.claude_host import child_env, find_claude, kill_group
     from repair_agent.config import model_for
 
     claude = find_claude()
@@ -96,10 +96,23 @@ def _claude(prompt: str) -> LlmReply:
         raise TierError("claude CLI not found")
     model = model_for("claude-cli")
     with tempfile.TemporaryDirectory(prefix="repair-t2-") as cwd:
-        proc = subprocess.run(
+        popen = subprocess.Popen(
             [claude, "-p", "--tools", "", "--output-format", "json", "--model", model],
-            input=prompt, capture_output=True, text=True, cwd=cwd, env=child_env(), timeout=LLM_TIMEOUT, check=False,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=child_env(),
+            start_new_session=True,
         )
+        try:
+            out, errtxt = popen.communicate(prompt, timeout=LLM_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            kill_group(popen)
+            try:
+                popen.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            raise TierError(f"claude timed out after {LLM_TIMEOUT}s") from exc
+        finally:
+            kill_group(popen)
+    proc = subprocess.CompletedProcess(popen.args, popen.returncode, out, errtxt)
     if proc.returncode != 0:
         raise TierError(f"claude exited {proc.returncode}: {proc.stderr[-300:]}")
     try:
@@ -125,7 +138,7 @@ def _groq(prompt: str) -> LlmReply:
     if not os.environ.get("GROQ_API_KEY"):
         raise TierError("GROQ_API_KEY not set")
     model = model_for("groq")
-    resp = groq.Groq(max_retries=2, timeout=120).chat.completions.create(
+    resp = groq.Groq(max_retries=0, timeout=min(120, LLM_TIMEOUT)).chat.completions.create(
         model=model, messages=[{"role": "user", "content": prompt}], temperature=0)
     u = getattr(resp, "usage", None)
     return LlmReply(resp.choices[0].message.content or "", {

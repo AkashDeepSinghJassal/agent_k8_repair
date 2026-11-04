@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -103,6 +104,11 @@ async def run_loop(
     nudges = 0
     seen_calls: dict[str, int] = {}
 
+    def left() -> float:
+        return timeout_s - (time.monotonic() - started)
+
+    timeout_msg = f"timeout after {timeout_s}s"
+
     def done(status: str, error: str = "") -> AgentResult:
         usage["latency_ms"] = int((time.monotonic() - started) * 1000)
         outcome = read_outcome(out_path)
@@ -116,7 +122,9 @@ async def run_loop(
         for attempt in range(API_RETRIES + 1):
             compact(messages, toolbox.tools, budget)
             try:
-                return await asyncio.to_thread(lambda: create(**kw))
+                return await asyncio.wait_for(asyncio.to_thread(lambda: create(**kw)), timeout=max(0.1, left()))
+            except TimeoutError:
+                raise
             except Exception as e:  # noqa: BLE001
                 last = e
                 if getattr(e, "status_code", None) == 413:
@@ -125,17 +133,17 @@ async def run_loop(
                 hint = hinted_wait(e)
                 if hint is not None and hint > 90:  # daily quota or long outage: let the runner fall back
                     break
-                if attempt < API_RETRIES and time.monotonic() - started < timeout_s:
-                    wait = retry_wait(e, 2.0 * 2**attempt)
+                if attempt < API_RETRIES and left() > 0:
+                    wait = min(retry_wait(e, 2.0 * 2**attempt), left())
                     if os.environ.get("REPAIR_AGENT_DEBUG"):
                         print(f"[groq] api error {type(e).__name__} {str(e)[:120]}; wait {wait:.0f}s", file=sys.stderr, flush=True)
-                    await asyncio.to_thread(sleep, wait)
+                    await asyncio.sleep(wait) if sleep is time.sleep else await asyncio.to_thread(sleep, wait)
         raise last  # type: ignore[misc]
 
     try:
         while True:
             if time.monotonic() - started > timeout_s:
-                return done("failed", "timeout")
+                return done("failed", timeout_msg)
             kw: dict[str, Any] = {
                 "model": model, "messages": messages, "tools": toolbox.tools, "tool_choice": "auto",
                 "max_completion_tokens": 8192,
@@ -144,6 +152,8 @@ async def run_loop(
                 kw["reasoning_effort"] = os.environ.get("REPAIR_AGENT_REASONING_EFFORT", "medium")
             try:
                 resp = await llm(kw)
+            except TimeoutError:
+                return done("failed", timeout_msg)
             except Exception as e:  # noqa: BLE001
                 return done("failed", f"groq api error: {type(e).__name__}: {str(e)[:300]}")
             usage["steps"] += 1
@@ -189,7 +199,10 @@ async def run_loop(
                         text, is_err = json.dumps({"error": "tool budget exhausted; call propose_patch or escalate now"}), True
                     else:
                         t0 = time.monotonic()
-                        text, is_err = await toolbox.call(name, args)
+                        try:
+                            text, is_err = await asyncio.wait_for(toolbox.call(name, args), timeout=max(0.1, left()))
+                        except TimeoutError:
+                            return done("failed", timeout_msg)
                         ms = int((time.monotonic() - t0) * 1000)
                         usage["tool_calls"] += 1
                         server = (getattr(toolbox, "server_names", None) or {}).get(name, "")
@@ -230,7 +243,18 @@ def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_
                     model=model, max_steps=max_steps, timeout_s=timeout_s, on_tool=on_tool,
                 )
 
-    try:
-        return asyncio.run(main())
-    except Exception as e:  # noqa: BLE001
-        return AgentResult("failed", usage={"provider": "groq", "model": model}, error=f"{type(e).__name__}: {str(e)[:300]}")
+    # Hard guard: run in a daemon thread so a wedged HTTP/MCP call cannot outlive the deadline.
+    box: list[AgentResult] = []
+
+    def target() -> None:
+        try:
+            box.append(asyncio.run(main()))
+        except Exception as e:  # noqa: BLE001
+            box.append(AgentResult("failed", usage={"provider": "groq", "model": model}, error=f"{type(e).__name__}: {str(e)[:300]}"))
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout_s + 20)
+    if box:
+        return box[0]
+    return AgentResult("failed", usage={"provider": "groq", "model": model}, error=f"timeout after {timeout_s}s")

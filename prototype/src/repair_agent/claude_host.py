@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -125,32 +126,71 @@ def build_result(parser: StreamParser, out_path: str, model: str, started: float
     return AgentResult(status, outcome, parser.trace, "\n".join(parser.evidence), files_from_trace(parser.trace), usage, error[:500])
 
 
-def _run_once(cmd: list[str], prompt: str, cwd: str, parser: StreamParser, timeout_s: float) -> tuple[int | None, str]:
-    """Returns (returncode or None on timeout, stderr tail)."""
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            cwd=cwd, env=child_env())
-    err: list[str] = []
-    t = threading.Thread(target=lambda: err.append(proc.stderr.read()), daemon=True)  # type: ignore[union-attr]
-    t.start()
-    timed_out = threading.Event()
-
-    def kill() -> None:
-        timed_out.set()
-        proc.kill()
-
-    timer = threading.Timer(timeout_s, kill)
-    timer.start()
+def kill_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the whole process group (claude plus its MCP children)."""
     try:
-        proc.stdin.write(prompt)  # type: ignore[union-attr]
-        proc.stdin.close()  # type: ignore[union-attr]
-        for line in proc.stdout:  # type: ignore[union-attr]
-            parser.feed(line)
-        proc.wait()
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def _run_once(cmd: list[str], prompt: str, cwd: str, parser: StreamParser, timeout_s: float) -> tuple[int | None, str]:
+    """Returns (returncode or None on timeout, stderr tail). Hard wall-clock deadline; kills the process group."""
+    deadline = time.monotonic() + timeout_s
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            cwd=cwd, env=child_env(), start_new_session=True)
+    err: list[str] = []
+
+    def read_err() -> None:
+        try:
+            err.append(proc.stderr.read())  # type: ignore[union-attr]
+        except (ValueError, OSError):
+            pass
+
+    def read_out() -> None:
+        try:
+            for line in proc.stdout:  # type: ignore[union-attr]
+                parser.feed(line)
+        except (ValueError, OSError):
+            pass
+
+    def write_in() -> None:
+        try:
+            proc.stdin.write(prompt)  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
+        except (ValueError, OSError):
+            pass
+
+    threads = [threading.Thread(target=f, daemon=True) for f in (read_err, read_out, write_in)]
+    for t in threads:
+        t.start()
+    timed_out = False
+    try:
+        # Wait on the process itself; pipes held open by orphaned MCP children must not block us.
+        try:
+            proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        if not timed_out:
+            threads[1].join(max(0.0, min(5.0, deadline - time.monotonic())))  # drain the tail of stdout
     finally:
-        timer.cancel()
-    t.join(2)
+        kill_group(proc)  # reaps MCP children too, on timeout and on normal exit
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            pass
+    for t in threads:
+        t.join(2)
+    for f in (proc.stdout, proc.stderr, proc.stdin):
+        try:
+            f.close()  # type: ignore[union-attr]
+        except (ValueError, OSError):
+            pass
     stderr = (err[0] if err else "")[-400:]
-    return (None if timed_out.is_set() else proc.returncode), stderr
+    return (None if timed_out else proc.returncode), stderr
 
 
 def run_claude(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None,
@@ -173,10 +213,13 @@ def run_claude(seed: dict, feedback: list[str] | None, *, max_steps: int, timeou
             error = ""
             for attempt in (1, 2):
                 parser = StreamParser(on_tool)
-                remaining = max(30.0, timeout_s - (time.monotonic() - started))
+                remaining = timeout_s - (time.monotonic() - started)
+                if remaining <= 0:
+                    error = f"timeout after {timeout_s}s"
+                    break
                 rc, stderr = _run_once(cmd, prompt, str(cwd), parser, remaining)
                 if rc is None:
-                    error = "timeout"
+                    error = f"timeout after {timeout_s}s"
                     break
                 if read_outcome(out) is not None or rc == 0:
                     error = ""

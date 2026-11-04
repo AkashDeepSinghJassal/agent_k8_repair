@@ -50,7 +50,11 @@ def investigate(seed: dict, feedback: list[str] | None = None, *, provider: str 
         res = _run(first, seed, feedback, max_steps, timeout_s, on_event)
         if res.status == "failed" and fallback_enabled():
             second = other_provider(first)
-            alt = _run(second, seed, feedback, max_steps, timeout_s, on_event)
+            remaining = int(timeout_s - (time.monotonic() - started))
+            if remaining <= 0:
+                res.usage["latency_ms"] = int((time.monotonic() - started) * 1000)
+                return res
+            alt = _run(second, seed, feedback, max_steps, remaining, on_event)
             alt.usage["fallback_from"] = first
             if alt.status == "failed":
                 alt.error = f"{first}: {res.error}; {second}: {alt.error}"
