@@ -41,6 +41,7 @@ REQUIRED_KEYS = {
 # after the commit of a git fault, e.g. noise), submit_workflow + argo_app (create a release-pipeline run once
 # Argo CD has synced the injected commit (submit_delay_seconds waits longer, e.g. for terminating pods to leave the Service), for faults whose symptom is a failing workflow step).
 SYNC_WAIT_SECONDS = 150
+ARGO_APP_BY_NAMESPACE = {"demo": "demo-app", "demo-b": "demo-app-b"}
 _sleep = time.sleep
 
 
@@ -283,6 +284,13 @@ def inject(
         _sleep(int(entry.get("submit_delay_seconds", 0)))
         kube(["-n", entry["namespace"], "create", "-f", "-"], stdin=_workflow_run_manifest(entry["namespace"]))
         result["actions"].append(["kubectl create workflow run", entry["namespace"]])
+    target = entry.get("restart_target")
+    if entry["kind"] == "git" and target:  # ConfigMap-only fault: a running pod never sees the change until restarted
+        kube = kube or Kubectl()
+        app = entry.get("argo_app") or ARGO_APP_BY_NAMESPACE.get(entry["namespace"], "demo-app")
+        result["synced"] = _wait_synced(kube, app, result["commit"])
+        kube(["-n", entry["namespace"], "rollout", "restart", f"deploy/{target}"])
+        result["actions"].append(["kubectl rollout restart", f"deploy/{target}"])
     return result
 
 

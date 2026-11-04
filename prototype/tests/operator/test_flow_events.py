@@ -123,6 +123,29 @@ def test_terminal_phase_emits_outcome_and_non_terminal_does_not():
     assert flow.read(NAME, NS)[-1]["status"] == "ok"
 
 
+def test_outcome_emitted_for_non_dict_mapping_body():
+    """Kopf hands handlers a Mapping Body (not a dict): the shadow Escalated path must still emit ``outcome``."""
+    from collections.abc import Mapping
+
+    class Body(Mapping):
+        def __init__(self, d):
+            self._d = d
+
+        def __getitem__(self, k):
+            return self._d[k]
+
+        def __iter__(self):
+            return iter(self._d)
+
+        def __len__(self):
+            return len(self._d)
+
+    incidents.set_phase({}, Phase.ESCALATED, incident=Body(BODY), shadow=True,
+                        outcome={"result": "escalated", "reason": "shadow_mode"})
+    (ev,) = flow.read(NAME, NS)
+    assert ev["kind"] == "outcome" and ev["data"]["reason"] == "shadow_mode"
+
+
 def test_span_start_and_end_merge_in_read():
     with flow.span(NAME, NS, "evidence", title="Collecting", data={"a": 1}) as (eid, extra):
         assert flow.read(NAME, NS)[0]["status"] == "running"

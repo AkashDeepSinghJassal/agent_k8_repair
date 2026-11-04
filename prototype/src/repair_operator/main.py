@@ -101,6 +101,8 @@ def emit_detected(body: dict) -> None:
 def configure(settings: kopf.OperatorSettings, **_):
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix=GROUP)
     settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(prefix=GROUP)
+    settings.watching.server_timeout = 60  # a silently dead watch stream is re-opened within ~a minute, not 10+
+    settings.watching.client_timeout = 90
     log.info("repair operator starting with %s", get_settings().public())
 
 
@@ -112,6 +114,8 @@ def incident_created(body, patch, **_):
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.DETECTED.value)
 def on_detected(body, patch, **_):
+    if not incidents.in_phase(body, Phase.DETECTED):
+        return  # Kopf also fires a value-filtered field handler when the field leaves the value
     delay = collect_step(body, patch, get_settings().debounce_seconds)
     if delay > 0:
         raise kopf.TemporaryError("debouncing", delay=delay)
@@ -119,18 +123,24 @@ def on_detected(body, patch, **_):
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.COLLECTED.value)
 def on_collected(body, patch, **_):
+    if not incidents.in_phase(body, Phase.COLLECTED):
+        return
     analyze_hook(body, patch)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.ANALYZING.value)
 def on_analyzing(body, patch, **_):
     """Analyzing -> Proposed | Escalated (analyzer + guardrails, retries internally)."""
+    if not incidents.in_phase(body, Phase.ANALYZING):
+        return  # Analyzing -> Escalated fires this handler again: never re-run the agent
     analyze_step(body, patch)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.PROPOSED.value)
 def on_proposed(body, patch, **_):
     """Proposed -> AwaitingReview (branch + PR)."""
+    if not incidents.in_phase(body, Phase.PROPOSED):
+        return
     propose_step(body, patch)
 
 

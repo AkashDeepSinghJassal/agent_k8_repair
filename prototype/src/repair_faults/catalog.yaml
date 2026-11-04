@@ -91,6 +91,7 @@ faults:
     expected_class: CRASH_LOOP
     expected_outcome: Healed
     correct_fix: "restore DB_URL: redis://redis:6379 in api-config"
+    restart_target: api
     evidence_milestones:
       - "api container exits with \"DB_URL not set\""
       - "api-config ConfigMap has no DB_URL key"
@@ -176,6 +177,7 @@ faults:
     expected_class: CRASH_LOOP
     expected_outcome: Healed
     correct_fix: "restore DB_URL in api-config and remove the injected print line"
+    restart_target: api
     evidence_milestones:
       - "api container exits with \"DB_URL not set\""
       - "api-config has no DB_URL key"

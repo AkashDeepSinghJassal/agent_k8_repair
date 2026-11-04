@@ -55,6 +55,11 @@ class FakeKubectl:
         return ""
 
 
+@pytest.fixture(autouse=True)
+def _no_sync_sleep(monkeypatch):
+    monkeypatch.setattr(injector, "_sleep", lambda _s: None)
+
+
 @pytest.fixture
 def fixture_files() -> dict[str, str]:
     paths = {e["target_file"] for e in list_faults() if e["target_file"]}
@@ -325,7 +330,7 @@ def test_every_fault_has_two_to_four_evidence_milestones(fault_id):
 
 def test_restart_targets_only_where_crash_needs_a_restart():
     targets = {e["id"]: e["restart_target"] for e in list_faults() if "restart_target" in e}
-    assert targets == {"F10": "frontend", "F11": "frontend", "F12": "api-b"}
+    assert targets == {"F4": "api", "F8": "api", "F10": "frontend", "F11": "frontend", "F12": "api-b"}
 
 
 def test_invalid_optional_keys_are_rejected(tmp_path):
@@ -363,6 +368,20 @@ def test_f17_f20_submit_a_workflow_after_argo_sync(fixture_files, monkeypatch):
         assert get[:4] == ["-n", "argocd", "get", "application"]
         assert create == ["-n", "demo", "create", "-f", "-"]
         assert "workflowTemplateRef" in kube.calls[-1][1]
+
+
+def test_f4_restarts_target_after_argo_sync(fixture_files, monkeypatch):
+    monkeypatch.setattr(injector, "_sleep", lambda _s: None)
+
+    class Kube(FakeKubectl):
+        def __call__(self, args, stdin=None):
+            super().__call__(args, stdin)
+            return "sha1 Synced" if "get" in args else ""
+
+    kube = Kube()
+    result = inject("F4", git=FakeGit(fixture_files), kubectl=kube)
+    assert result["synced"] is True
+    assert kube.calls[-1][0] == ["-n", "demo", "rollout", "restart", "deploy/api"]
 
 
 def test_f17_gives_up_waiting_for_sync_but_still_submits(fixture_files, monkeypatch):

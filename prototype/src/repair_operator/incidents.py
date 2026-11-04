@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -87,6 +88,28 @@ def _find_open_sibling(api: Any, namespace: str, source: dict, name: str) -> dic
     return None
 
 
+def _shadow_escalated(api: Any, namespace: str, source: dict, name: str) -> bool:
+    """A shadow-mode incident (``ri-x``, ``ri-x-2``, ...) for the same still-failing pod already ended Escalated.
+
+    Shadow mode never fixes anything, so the failure persists and would otherwise reopen after the cooldown.
+    """
+    try:
+        items = api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL).get("items") or []
+    except Exception:  # noqa: BLE001
+        return False
+    for it in items if isinstance(items, list) else []:
+        n, st = it.get("metadata", {}).get("name") or "", it.get("status") or {}
+        src = (it.get("spec") or {}).get("source") or {}
+        if (
+            (n == name or n.startswith(f"{name}-"))
+            and st.get("shadow")
+            and st.get("phase") == Phase.ESCALATED.value
+            and src.get("name") == source.get("name")
+        ):
+            return True
+    return False
+
+
 def _merge_signal(api: Any, namespace: str, existing: dict, source: dict) -> dict:
     """Record ``source`` as an extra signal on ``existing``; OOMKilled wins as the class hint."""
     name = existing["metadata"]["name"]
@@ -117,6 +140,9 @@ def open_incident(
         log.info("fingerprint %s in cooldown, not opening an incident", fp[:10])
         return None
     name = incident_name(fp)
+    if _shadow_escalated(api, namespace, source, name):
+        log.info("%s: shadow-escalated incident exists for pod %s, not opening another", name, source.get("name"))
+        return None
     sibling = _find_open_sibling(api, namespace, source, name)
     if sibling is not None:
         return _merge_signal(api, namespace, sibling, source)
@@ -175,7 +201,7 @@ def set_phase(
     status.update(fields)
 
     if incident is not None:
-        if isinstance(incident, dict):
+        if isinstance(incident, Mapping):  # kopf's Body is a Mapping, not a dict
             meta = incident.get("metadata") or {}
             name, ns = meta.get("name"), namespace or meta.get("namespace")
         else:
