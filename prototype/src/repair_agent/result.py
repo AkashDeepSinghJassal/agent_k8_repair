@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PREVIEW = 500
+MAX_RESULT = 20_000
 
 
 @dataclass
@@ -31,6 +32,17 @@ def read_outcome(path: str | Path) -> dict | None:
 
 def preview(text: str) -> str:
     return text if len(text) <= PREVIEW else text[:PREVIEW] + "..."
+
+
+def cap_result(text: str) -> str:
+    return text if len(text) <= MAX_RESULT else text[:MAX_RESULT] + f"...[truncated {len(text) - MAX_RESULT} chars]"
+
+
+def server_of(name: str) -> str:
+    """mcp__git__git_read -> git; k8s__k8s_logs -> k8s; bare names -> ''."""
+    if name.startswith("mcp__"):
+        return name.split("__", 2)[1] if name.count("__") >= 2 else ""
+    return name.split("__", 1)[0] if "__" in name else ""
 
 
 def short_tool(name: str) -> str:

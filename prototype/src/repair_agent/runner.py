@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from .config import fallback_enabled, other_provider, select_provider
 from .result import AgentResult, files_from_trace
+
+log = logging.getLogger(__name__)
 
 __all__ = ["AgentResult", "investigate"]
 
@@ -20,9 +23,17 @@ def _host(provider: str):
     return run_groq
 
 
-def _run(provider: str, seed: dict, feedback, max_steps: int, timeout_s: int) -> AgentResult:
+def _run(provider: str, seed: dict, feedback, max_steps: int, timeout_s: int, on_event=None) -> AgentResult:
     try:
-        res = _host(provider)(seed, feedback, max_steps=max_steps, timeout_s=timeout_s)
+        def on_tool(ev: dict) -> None:
+            if on_event is not None:
+                try:
+                    on_event(ev)
+                except Exception:
+                    log.debug("on_tool callback failed", exc_info=True)
+
+        extra = {"on_tool": on_tool} if on_event is not None else {}
+        res = _host(provider)(seed, feedback, max_steps=max_steps, timeout_s=timeout_s, **extra)
     except Exception as e:  # noqa: BLE001
         res = AgentResult("failed", usage={"provider": provider}, error=f"{type(e).__name__}: {str(e)[:300]}")
     res.usage.setdefault("provider", provider)
@@ -32,14 +43,14 @@ def _run(provider: str, seed: dict, feedback, max_steps: int, timeout_s: int) ->
 
 
 def investigate(seed: dict, feedback: list[str] | None = None, *, provider: str | None = None,
-                max_steps: int = 30, timeout_s: int = 600) -> AgentResult:
+                max_steps: int = 30, timeout_s: int = 600, on_event=None) -> AgentResult:
     started = time.monotonic()
     try:
         first = select_provider(provider)
-        res = _run(first, seed, feedback, max_steps, timeout_s)
+        res = _run(first, seed, feedback, max_steps, timeout_s, on_event)
         if res.status == "failed" and fallback_enabled():
             second = other_provider(first)
-            alt = _run(second, seed, feedback, max_steps, timeout_s)
+            alt = _run(second, seed, feedback, max_steps, timeout_s, on_event)
             alt.usage["fallback_from"] = first
             if alt.status == "failed":
                 alt.error = f"{first}: {res.error}; {second}: {alt.error}"

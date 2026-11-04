@@ -26,11 +26,12 @@ class McpToolbox:
         self.specs = specs
         self.tools: list[dict] = []
         self._clients: dict[str, Any] = {}  # bare tool name -> Client
+        self.server_names: dict[str, str] = {}  # bare tool name -> server name
         self._stack = AsyncExitStack()
 
     async def __aenter__(self) -> McpToolbox:  # noqa: PYI034
         try:
-            for spec in self.specs.values():
+            for server, spec in self.specs.items():
                 params = StdioServerParameters(command=spec["command"], args=spec.get("args", []), env=spec.get("env"))
                 client = await self._stack.enter_async_context(Client(params))
                 listing = await client.list_tools()
@@ -38,6 +39,7 @@ class McpToolbox:
                     if t.name in self._clients:
                         continue
                     self._clients[t.name] = client
+                    self.server_names[t.name] = server
                     self.tools.append({
                         "type": "function",
                         "function": {"name": t.name, "description": t.description or "", "parameters": t.input_schema},

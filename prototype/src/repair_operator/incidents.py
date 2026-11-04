@@ -194,6 +194,23 @@ def set_phase(
                     "fault": fields.get("fault") or status.get("fault"),
                 },
             )
+            if phase in TERMINAL_PHASES:
+                _emit_outcome(name, ns, phase, status, fields)
+
+
+def _emit_outcome(name: str, ns: str | None, phase: Phase, status: dict, fields: dict) -> None:
+    try:
+        from . import flow
+
+        outcome = fields.get("outcome") or status.get("outcome") or {}
+        reason = outcome.get("reason") or ""
+        tier = (status.get("proposal") or {}).get("tier_used")
+        flow.emit(name, ns or "", "outcome", title=f"{phase.value}" + (f": {reason}" if reason else ""),
+                  data={"phase": phase.value, "reason": reason, "result": outcome.get("result")},
+                  tier=tier if tier in ("T1", "T2", "T3") else None,
+                  status="ok" if phase in (Phase.HEALED, Phase.DISMISSED) else "error")
+    except Exception:
+        log.debug("outcome flow event failed", exc_info=True)
 
 
 def in_phase(body: dict, phase: Phase) -> bool:

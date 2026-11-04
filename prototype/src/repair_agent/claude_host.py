@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -13,8 +14,10 @@ from pathlib import Path
 
 from .config import model_for
 from .prompt import SYSTEM_PROMPT, render_seed
-from .result import AgentResult, files_from_trace, preview, read_outcome, short_tool
+from .result import AgentResult, cap_result, files_from_trace, preview, read_outcome, server_of, short_tool
 from .servers import SERVERS, server_specs
+
+log = logging.getLogger(__name__)
 
 
 def find_claude() -> str | None:
@@ -32,7 +35,8 @@ def _block_text(content) -> str:
 class StreamParser:
     """Feed stream-json lines; accumulates trace, evidence and the final result event."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_tool=None) -> None:
+        self.on_tool = on_tool  # optional callback(event dict), once per completed tool call; must not break the run
         self.trace: list[dict] = []
         self.evidence: list[str] = []
         self.result: dict | None = None
@@ -63,7 +67,7 @@ class StreamParser:
                 continue
             if b.get("type") == "tool_use":
                 entry = {"step": len(self.trace) + 1, "tool": short_tool(b.get("name", "")), "args": b.get("input") or {},
-                         "result_preview": "", "ms": 0}
+                         "result_preview": "", "result": "", "ms": 0, "server": server_of(b.get("name", ""))}
                 self.trace.append(entry)
                 self._pending[b.get("id", "")] = (entry, time.monotonic())
             elif b.get("type") == "tool_result":
@@ -72,9 +76,17 @@ class StreamParser:
                 self.evidence.append(text)
                 if entry is not None:
                     entry["result_preview"] = preview(text)
+                    entry["result"] = cap_result(text)
                     entry["ms"] = int((time.monotonic() - t0) * 1000)
                     if b.get("is_error"):
                         entry["error"] = True
+                    if self.on_tool is not None:
+                        try:
+                            self.on_tool({"server": entry["server"], "tool": entry["tool"], "args": entry["args"],
+                                          "result": entry["result"], "ms": entry["ms"], "error": bool(entry.get("error")),
+                                          "step": entry["step"]})
+                        except Exception:
+                            log.debug("on_tool callback failed", exc_info=True)
 
 
 def build_command(claude: str, cfg_path: str, model: str, max_turns: int = 40) -> list[str]:
@@ -141,7 +153,8 @@ def _run_once(cmd: list[str], prompt: str, cwd: str, parser: StreamParser, timeo
     return (None if timed_out.is_set() else proc.returncode), stderr
 
 
-def run_claude(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None) -> AgentResult:
+def run_claude(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None,
+               on_tool=None) -> AgentResult:
     model = model or model_for("claude-cli")
     started = time.monotonic()
     claude = find_claude()
@@ -156,10 +169,10 @@ def run_claude(seed: dict, feedback: list[str] | None, *, max_steps: int, timeou
             cwd.mkdir()
             cmd = build_command(claude, str(cfg), model, max_turns=max(40, max_steps + 10))
             prompt = render_seed(seed, feedback)
-            parser = StreamParser()
+            parser = StreamParser(on_tool)
             error = ""
             for attempt in (1, 2):
-                parser = StreamParser()
+                parser = StreamParser(on_tool)
                 remaining = max(30.0, timeout_s - (time.monotonic() - started))
                 rc, stderr = _run_once(cmd, prompt, str(cwd), parser, remaining)
                 if rc is None:

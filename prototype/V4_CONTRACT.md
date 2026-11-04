@@ -115,3 +115,15 @@ The fault list is extended from SREGym, Cloud-OpsBench and production incident s
 ## 7. Testing
 
 Light unit tests with fakes for flow, playbooks (capture, extract rules, promotion/demotion), tier executors (with a fake MCP toolbox), router fallback, dashboard endpoints. Live testing is done by separate test agents (Haiku) with the demo running.
+
+## 8. Implementation notes (engine, issue #25)
+
+Deviations and details of the implemented engine (`playbooks.py`, `crystallize.py`, `tiers/`):
+
+- `Playbook` has an extra `meta` dict (`t1_blocked`, `seen`/`same` for consistency, `streak`, `root_cause`); `runs` also counts `rejected` and `t2_match`. `Extract.from_step` is a 0-based index into `steps`. Commit shas used as tool arguments are bound dynamically (`sha_<n>` extract, `json_path`), because the sha changes per incident. `${` in literal text is escaped as `$${`.
+- Tier `run` functions are async (they use the MCP toolbox): `t1.run(playbook, seed, mcp, tracer)`, `t2.run(playbook, seed, mcp, llm, tracer, feedback)`; `mcp` is anything with `async call(name, args) -> (text, is_error)`.
+- Hybrid proposals from every tier have `source="agent"`, `tier=3`; the tier is `Proposal.tier_used` (`T1`/`T2`/`T3`) and `playbook_id`. `repair_flow._agent_status` writes `status.agent.tierUsed`, `playbookId`, `rulesMatch`. The learner reads those fields and the saved T3 trace `agent-traces/<incident>-a<attempt>.json`.
+- `route` event data: `chosen_tier` (also `tier`), `playbook_id`, `playbook_state`, `reason`, `fallback_from`, `counts`.
+- Promotion: T3 -> T2 needs `t3_ok >= REPAIR_PROMOTE_T2_AFTER`, `streak >= that` (clean verified T3 heals since the last state change), `consistency >= 0.9`, `edited == 0`, `rejected == 0`. T2 -> T1 needs `streak >= REPAIR_PROMOTE_T1_AFTER` where only T2 heals whose LLM edit equalled the extract-rule edit count (a non-matching T2 heal resets the streak), and no `t1_blocked`. `t2_ok` counts all verified T2 heals, `t2_match` the matching ones.
+- Only clean heals count: merged change equals the proposal and `attempts == 1` with no review feedback; otherwise the learner emits `skipped` (and bumps `rejected` / `edited` on an existing playbook).
+- Demotion: failed T1/T2 execution (tool error, extract failure, find anchor not exactly once in the replayed file, invalid LLM output) demotes in the same attempt and falls through to the next tier; the router also demotes when a retry arrives with feedback and the previous attempt ran on T1/T2 (covers guardrail rejections and reviewer change requests); the learner demotes on Failed/Escalated (PR closed or re-run failed) and on a reviewer edit. Each demotion resets `streak`.

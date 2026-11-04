@@ -43,17 +43,20 @@ if [ -z "${REPAIR_LLM_PROVIDER:-}" ]; then
   if [ -n "${GROQ_API_KEY:-}" ]; then REPAIR_LLM_PROVIDER=groq; else REPAIR_LLM_PROVIDER=anthropic; fi
 fi
 export REPAIR_LLM_PROVIDER
-case "${REPAIR_ANALYZER_MODE:-agent}:$REPAIR_LLM_PROVIDER" in
-  agent:*) : ;; # agent mode: keys are checked by the agent host (groq key or the claude CLI), not here
+case "${REPAIR_ANALYZER_MODE:-hybrid}:$REPAIR_LLM_PROVIDER" in
+  agent:*|hybrid:*) : ;; # agent mode: keys are checked by the agent host (groq key or the claude CLI), not here
   *:groq) [ -n "${GROQ_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=groq but GROQ_API_KEY is not set" ;;
   *:anthropic) [ -n "${ANTHROPIC_API_KEY:-}" ] || die "REPAIR_LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set" ;;
   *) die "unknown REPAIR_LLM_PROVIDER '$REPAIR_LLM_PROVIDER' (use groq or anthropic)" ;;
 esac
 
-# Analyzer: this branch (prototype-v3) defaults to the agent-over-MCP mode. Set REPAIR_ANALYZER_MODE=llm-first
+# Analyzer: this branch (prototype-v4) defaults to hybrid (T1/T2/T3 progressive crystallization); agent = T3 only. Set REPAIR_ANALYZER_MODE=llm-first
 # to use the single-shot LLM instead. REPAIR_AGENT_PROVIDER (groq | claude-cli) is passed through; the
 # dashboard switch (agent-config.json) overrides it at runtime.
-export REPAIR_ANALYZER_MODE="${REPAIR_ANALYZER_MODE:-agent}"
+export REPAIR_ANALYZER_MODE="${REPAIR_ANALYZER_MODE:-hybrid}"
+export REPAIR_AGENT_PROVIDER="${REPAIR_AGENT_PROVIDER:-claude-cli}"
+export REPAIR_PROMOTE_T2_AFTER="${REPAIR_PROMOTE_T2_AFTER:-2}"
+export REPAIR_PROMOTE_T1_AFTER="${REPAIR_PROMOTE_T1_AFTER:-2}"
 if [ -n "${REPAIR_AGENT_PROVIDER:-}" ]; then
   export REPAIR_AGENT_PROVIDER
   AGENT_PROVIDER_DESC="$REPAIR_AGENT_PROVIDER"
@@ -126,7 +129,8 @@ start dashboard uv run uvicorn repair_dashboard.app:app --port 8090
 
 echo
 echo "Analyzer mode: $REPAIR_ANALYZER_MODE"
-[ "$REPAIR_ANALYZER_MODE" = agent ] && echo "Agent provider: $AGENT_PROVIDER_DESC (switch in the dashboard header)"
+[ "$REPAIR_ANALYZER_MODE" = hybrid ] && echo "Promotion:      T3 -> T2 after $REPAIR_PROMOTE_T2_AFTER verified heals, T2 -> T1 after $REPAIR_PROMOTE_T1_AFTER (thesis defaults 10 / 50)"
+[ "$REPAIR_ANALYZER_MODE" != llm-first ] && [ "$REPAIR_ANALYZER_MODE" != rules-first ] && echo "Agent provider: $AGENT_PROVIDER_DESC (switch in the dashboard header)"
 echo "LLM provider:  $REPAIR_LLM_PROVIDER (single-shot analyzer / fallback)"
 echo "Dashboard:     http://localhost:8090"
 echo "Demo app:      http://localhost:8080"

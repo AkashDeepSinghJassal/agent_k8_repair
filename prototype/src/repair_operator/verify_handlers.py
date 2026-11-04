@@ -18,7 +18,7 @@ from typing import Any
 
 import kopf
 
-from . import incidents, knowledge, retrigger
+from . import flow, incidents, knowledge, retrigger
 from .config import get_settings
 from .incidents import GROUP, PLURAL, VERSION
 from .models import TERMINAL_PHASES, Phase
@@ -34,6 +34,10 @@ def merge_sha(status: dict) -> str | None:
 
 
 # --- Merged -> Verifying ---------------------------------------------------------
+
+
+def _flow(body: dict, kind: str, title: str, data: dict, status: str = "ok") -> None:
+    flow.emit_for(body, kind, title=title, data=data, status=status)  # never raises
 
 
 def merged_step(body: dict, patch: dict, custom_api: Any, now: datetime | None = None) -> float:
@@ -61,6 +65,9 @@ def merged_step(body: dict, patch: dict, custom_api: Any, now: datetime | None =
     rerun = retrigger.retrigger(body, custom_api=custom_api)
     if rerun:
         verify["rerun"] = rerun["rerun"]["name"]
+    _flow(body, "sync", f"Argo CD synced {str(sha)[:7]}", {
+        "revision": sha, "synced": True, "rerun": verify.get("rerun"),
+        "sync_status": ((app.get("status") or {}).get("sync") or {}).get("status")})
     incidents.set_phase(patch, Phase.VERIFYING, now, incident=body, verify=verify)
     return 0.0
 
@@ -98,11 +105,20 @@ def verify_step(
                 out["restarts"] = merged
         if out:
             patch.setdefault("status", {}).setdefault("verify", {}).update(out)
+        if "healthySince" in out:  # window started or reset: a verdict change, not a 5 s tick
+            _flow(body, "verify", "Healthy, verification window started" if verdict.healthy_since
+                  else "Unhealthy again, verification window reset",
+                  {"healthySince": verdict.healthy_since, "verdict": verdict.state, "details": [verdict.reason, *verdict.details]})
     elif verdict.state == "healed":
+        _flow(body, "verify", "Verified healthy for the full window",
+              {"healthySince": verdict.healthy_since or verify.get("healthySince"), "verdict": "healed",
+               "details": [verdict.reason, *verdict.details]})
         _close(patch, Phase.HEALED, verdict.reason, now, body)
     elif verdict.state == "failed":
         feedback = list(status.get("reviewFeedback") or [])
         feedback.append("re-run failed: " + "; ".join([verdict.reason, *verdict.details]))
+        _flow(body, "verify", f"Verification failed: {verdict.reason}",
+              {"verdict": "failed", "details": [verdict.reason, *verdict.details]}, status="error")
         attempts = (status.get("attempts") or 0) + 1  # this failed verification consumed an attempt
         if attempts > max_attempts:  # same comparison as repair_flow.analyze_step
             incidents.set_phase(
@@ -182,6 +198,13 @@ def closed_step(body: dict, patch: dict, repo: Any = None) -> None:
     if spec_fp:
         incidents.start_cooldown(spec_fp)
     learn(body, patch, repo=repo)
+    if get_settings().analyzer_mode == "hybrid":  # progressive crystallization (V4_CONTRACT.md section 4)
+        try:
+            from . import crystallize
+
+            crystallize.learn_from_incident(body, patch, repo)
+        except Exception:
+            log.exception("hybrid learning failed")
 
 
 # --- cluster clients (lazy) and Kopf wrappers -------------------------------------

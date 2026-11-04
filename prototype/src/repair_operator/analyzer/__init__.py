@@ -55,6 +55,11 @@ def analyze(
     settings = settings or get_settings()
     file = _path(bundle)
 
+    if settings.analyzer_mode == "hybrid":  # T1 -> T2 -> T3 by playbook state (V4_CONTRACT.md section 3)
+        from .. import tiers
+
+        return tiers.router.analyze_hybrid(bundle, feedback, settings=settings)
+
     if settings.analyzer_mode == "agent":  # pure Approach C: no recipe, no rules
         from .agent import agent_analyze
 

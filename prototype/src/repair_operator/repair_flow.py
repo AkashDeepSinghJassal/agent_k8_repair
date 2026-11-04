@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import evidence, git_writer, guardrails, incidents
+from . import evidence, flow, git_writer, guardrails, incidents
 from .analyzer import InvalidOutput, LlmUnavailable
 from .analyzer import analyze as default_analyze
 from .config import Settings, get_settings
@@ -71,6 +71,37 @@ def refresh_evidence(
         log.exception("%s: could not collect fresh evidence for attempt %d, using the newest bundle", name, attempts)
 
 
+def _tier_label(p: Proposal) -> str | None:
+    t = getattr(p, "tier_used", None)
+    if t in ("T1", "T2", "T3"):
+        return t
+    return "T3" if p.source == "agent" else None
+
+
+def _flow_proposal(body: dict, p: Proposal) -> None:
+    try:
+        what = f"edit {p.file}" if p.fixable_in_git and p.file else "escalate (not fixable in git)"
+        flow.emit_for(body, "proposal", title=f"Proposal: {p.cls}, {what}", tier=_tier_label(p), data={
+            "tier": _tier_label(p), "class": p.cls, "root_cause": p.root_cause, "confidence": p.confidence,
+            "file": p.file, "edits": [e.model_dump() for e in p.edits], "rationale": p.rationale,
+            "fixable_in_git": p.fixable_in_git, "source": p.source})
+    except Exception:
+        log.debug("proposal flow event failed", exc_info=True)
+
+
+def _flow_guardrails(body: dict, p: Proposal, res: Any = None, *, extra: dict | None = None) -> None:
+    """One ``guardrail`` event per check (``res.checks``), plus ``extra`` {name, ok, detail} for checks made here."""
+    try:
+        checks = list(getattr(res, "checks", None) or [])
+        if extra:
+            checks.append(extra)
+        for c in checks:
+            flow.emit_for(body, "guardrail", tier=_tier_label(p), status="ok" if c["ok"] else "error",
+                          title=f"Guardrail {c['name']} {'passed' if c['ok'] else 'failed'}", data=c)
+    except Exception:
+        log.debug("guardrail flow event failed", exc_info=True)
+
+
 def _classification(p: Proposal) -> dict:
     d = {"class": p.cls, "confidence": p.confidence, "source": p.source}
     if p.rule_disagreement:
@@ -94,6 +125,8 @@ def _agent_status(p: Proposal) -> dict:
     }
     if m.get("fallback_from"):
         d["fallbackFrom"] = m["fallback_from"]
+    if p.tier_used:  # hybrid mode: which tier ran and for which playbook (read by the learner)
+        d.update(tierUsed=p.tier_used, playbookId=p.playbook_id, rulesMatch=m.get("rules_match"))
     return d
 
 
@@ -178,7 +211,7 @@ def analyze_step(
             _escalate(patch, "evidence_missing", now, None, status, incident=body, attempts=attempts)
             return
         try:
-            if settings.analyzer_mode == "agent":
+            if settings.analyzer_mode in ("agent", "hybrid"):
                 bundle = {**bundle, "attempt": attempts}  # names the saved agent trace
             proposal = analyze_fn(bundle, feedback or None, store=store) if store else analyze_fn(bundle, feedback or None)
         except LlmUnavailable as exc:
@@ -191,6 +224,7 @@ def analyze_step(
             attempts += 1
             continue
 
+        _flow_proposal(body, proposal)
         common = {"classification": _classification(proposal), "attempts": attempts, "reviewFeedback": feedback}
         if proposal.source == "agent":
             common["agent"] = _agent_status(proposal)
@@ -221,17 +255,20 @@ def analyze_step(
         if not path or proposal.file not in allowed:
             res = guard_fn(proposal, "", "", path or "", skip=guard_skip, allowed_paths=allowed)
             rejected_by, details = res.rejected_by or "path_allowlist", res.details
+            _flow_guardrails(body, proposal, res)
         else:
             current = gh.get_contents(proposal.file, ref=gh.default_branch).decoded_content.decode("utf-8")
             try:
                 new_text = guardrails.apply_edits(current, proposal.edits)
             except guardrails.GuardrailError as exc:
                 rejected_by, details = "exact_edit", str(exc)
+                _flow_guardrails(body, proposal, extra={"name": "exact_edit", "ok": False, "detail": details[:2000]})
             else:
                 res = guard_fn(
                     proposal, current, new_text, proposal.file,
                     skip=guard_skip, allowed_paths=allowed, evidence_text=ev_text,
                 )
+                _flow_guardrails(body, proposal, res)
                 if not res.ok:
                     rejected_by, details = res.rejected_by, res.details
         if rejected_by:
@@ -272,6 +309,25 @@ def propose_step(
         bundle=bundle, evidence_ref=status.get("evidenceRef"), verify_window=settings.verify_window_seconds,
     )
     incidents.set_phase(patch, Phase.AWAITING_REVIEW, now, incident=body, pullRequest=pr.html_url)
+    try:
+        number = getattr(pr, "number", None) or _pr_number(pr.html_url)
+        flow.emit_for(body, "pr", title=f"Opened PR #{number}" if number else "Opened PR",
+                      tier=proposal.tier_used if getattr(proposal, "tier_used", None) in ("T1", "T2", "T3") else None,
+                      data={"number": number, "url": pr.html_url, "branch": git_writer.branch_name(name), "attempt": attempts})
+    except Exception:
+        log.debug("pr flow event failed", exc_info=True)
+
+
+def _flow_review(body: dict, number: int, state: Any) -> None:
+    try:
+        titles = {"merged": f"PR #{number} merged", "closed": f"PR #{number} closed without merge",
+                  "changes_requested": f"Changes requested on PR #{number}"}
+        if state.state in titles:
+            flow.emit_for(body, "review", title=titles[state.state], status="ok" if state.state == "merged" else "error",
+                          data={"state": state.state, "number": number, "feedback": list(state.feedback or []),
+                                "merge_sha": getattr(state, "merge_sha", None)})
+    except Exception:
+        log.debug("review flow event failed", exc_info=True)
 
 
 def review_step(
@@ -293,6 +349,7 @@ def review_step(
         return
     gh = _repo(repo, settings)
     state = git_writer.poll_pr(gh, number, status.get("reviewCursor"))
+    _flow_review(body, number, state)
     if state.state == "merged":
         _record(store, status, "approved", settings)
         incidents.set_phase(patch, Phase.MERGED, now, incident=body, mergeSha=state.merge_sha)

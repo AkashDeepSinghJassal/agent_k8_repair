@@ -53,6 +53,39 @@ def save_trace(bundle: dict, attempt: int, seed: dict, result: object) -> None:
         log.exception("could not save agent trace")
 
 
+def _flow(incident: str, ns: str, kind: str, **kw: object) -> str | None:
+    try:
+        from .. import flow
+
+        return flow.emit(incident, ns, kind, **kw)  # type: ignore[arg-type]
+    except Exception:
+        log.debug("flow emit failed", exc_info=True)
+        return None
+
+
+def _tool_sink(incident: str, ns: str, parent: str | None):
+    """on_event callback for ``runner.investigate``: one ``tool_call`` flow event per completed tool call."""
+    def sink(ev: dict) -> None:
+        _flow(incident, ns, "tool_call", title=f"Agent called {ev.get('tool')}", tier="T3", parent=parent,
+              status="error" if ev.get("error") else "ok", duration_ms=ev.get("ms"),
+              data={k: ev.get(k) for k in ("server", "tool", "args", "result", "ms", "error", "step")})
+    return sink
+
+
+def _agent_end(incident: str, ns: str, start_id: str | None, result: object) -> None:
+    try:
+        u = getattr(result, "usage", None) or {}
+        status = getattr(result, "status", "")
+        data = {"status": status, "error": getattr(result, "error", ""),
+                **{k: u.get(k) for k in ("provider", "model", "steps", "input_tokens", "output_tokens", "cost_usd",
+                                         "latency_ms", "fallback_from")}}
+        _flow(incident, ns, "agent_end", title=f"Agent {status}" + (f" after {u.get('steps')} steps" if u.get("steps") else ""),
+              tier="T3", parent=start_id, status="error" if status == "failed" else "ok", data=data,
+              duration_ms=u.get("latency_ms"))
+    except Exception:
+        log.debug("on_tool callback failed", exc_info=True)
+
+
 def _escalated(cls: str, root_cause: str, rationale: str, confidence: float = 1.0) -> Proposal:
     return Proposal(
         **{"class": cls}, root_cause=root_cause, confidence=confidence, fixable_in_git=False,
@@ -65,8 +98,12 @@ def agent_analyze(bundle: dict, feedback: list[str] | None = None, **_: object) 
 
     seed = build_seed(bundle)
     attempt = int(bundle.get("attempt") or 1)
-    result = runner.investigate(seed, list(feedback or []) or None)
+    inc, ns = str(bundle.get("incident") or ""), seed.get("namespace") or ""
+    start_id = _flow(inc, ns, "agent_start", title="Agent started", tier="T3", data={"seed": seed, "attempt": attempt})
+    on_event = _tool_sink(inc, ns, start_id)
+    result = runner.investigate(seed, list(feedback or []) or None, on_event=on_event)
     save_trace(bundle, attempt, seed, result)
+    _agent_end(inc, ns, start_id, result)
 
     p = result.proposal or {}
     if result.status == "proposed" and p.get("edits"):

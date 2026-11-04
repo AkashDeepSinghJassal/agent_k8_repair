@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -15,8 +16,10 @@ from typing import Any, Protocol
 from .config import model_for
 from .mcp_tools import McpToolbox
 from .prompt import NUDGE, SYSTEM_PROMPT, render_seed
-from .result import AgentResult, files_from_trace, preview, read_outcome
+from .result import AgentResult, cap_result, files_from_trace, preview, read_outcome
 from .servers import server_specs
+
+log = logging.getLogger(__name__)
 
 MAX_NUDGES = 2
 API_RETRIES = 6  # mostly TPM rate limits on small Groq tiers; each wait follows the server's hint
@@ -89,6 +92,7 @@ async def run_loop(
     max_steps: int = 30,
     timeout_s: float = 600,
     sleep: Any = time.sleep,
+    on_tool: Any = None,
 ) -> AgentResult:
     """``create`` is ``client.chat.completions.create``. Returns an AgentResult (never raises)."""
     started = time.monotonic()
@@ -188,10 +192,18 @@ async def run_loop(
                         text, is_err = await toolbox.call(name, args)
                         ms = int((time.monotonic() - t0) * 1000)
                         usage["tool_calls"] += 1
-                        entry = {"step": len(trace) + 1, "tool": name, "args": args, "result_preview": preview(text), "ms": ms}
+                        server = (getattr(toolbox, "server_names", None) or {}).get(name, "")
+                        entry = {"step": len(trace) + 1, "tool": name, "args": args, "result_preview": preview(text),
+                                 "result": cap_result(text), "ms": ms, "server": server}
                         if is_err:
                             entry["error"] = True
                         trace.append(entry)
+                        if on_tool is not None:
+                            try:
+                                on_tool({"server": server, "tool": name, "args": args, "result": entry["result"], "ms": ms,
+                                         "error": bool(is_err), "step": entry["step"]})
+                            except Exception:
+                                log.debug("on_tool callback failed", exc_info=True)
                         evidence.append(text)
                 shown = text if len(text) <= MODEL_RESULT_CHARS else text[:MODEL_RESULT_CHARS] + "\n[truncated]"
                 messages.append({"role": "tool", "tool_call_id": c.id, "content": shown})
@@ -203,7 +215,8 @@ async def run_loop(
         return done("failed", f"{type(e).__name__}: {str(e)[:300]}")
 
 
-def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None) -> AgentResult:
+def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None,
+             on_tool: Any = None) -> AgentResult:
     model = model or model_for("groq")
     if not os.environ.get("GROQ_API_KEY"):
         return AgentResult("failed", usage={"provider": "groq", "model": model}, error="GROQ_API_KEY not set")
@@ -214,7 +227,7 @@ def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_
             async with McpToolbox(server_specs(out)) as box:
                 return await run_loop(
                     _make_groq(), box, system=SYSTEM_PROMPT, user=render_seed(seed, feedback), out_path=out,
-                    model=model, max_steps=max_steps, timeout_s=timeout_s,
+                    model=model, max_steps=max_steps, timeout_s=timeout_s, on_tool=on_tool,
                 )
 
     try:

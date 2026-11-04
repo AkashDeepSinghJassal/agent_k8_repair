@@ -62,6 +62,23 @@ def analyze_hook(body: dict, patch: dict) -> None:
     )
 
 
+def emit_detected(body: dict) -> None:
+    """Flow trace: ``detected`` event from the new incident's spec. Never raises."""
+    try:
+        from . import flow
+
+        spec = body.get("spec") or {}
+        src = spec.get("source") or {}
+        flow.emit_for(
+            body, "detected",
+            title=f"Detected {src.get('reason') or 'failure'} on {src.get('kind', 'Pod')} {src.get('name', '')}".strip(),
+            data={"source": {k: src.get(k) for k in ("kind", "name", "owner", "container", "reason", "classHint")},
+                  "fingerprint": spec.get("fingerprint")},
+        )
+    except Exception:
+        log.debug("detected flow event failed", exc_info=True)
+
+
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix=GROUP)
@@ -72,6 +89,7 @@ def configure(settings: kopf.OperatorSettings, **_):
 @kopf.on.create(GROUP, VERSION, PLURAL)
 def incident_created(body, patch, **_):
     incidents.set_phase(patch, Phase.DETECTED, incident=body)
+    emit_detected(body)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.DETECTED.value)

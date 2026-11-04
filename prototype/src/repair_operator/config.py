@@ -27,7 +27,7 @@ class Settings(BaseModel):
     llm_provider: str = "groq"  # "groq" | "anthropic"
     llm_model: str = ""  # empty -> provider default (DEFAULT_MODELS)
     llm_reasoning_effort: str = "medium"  # low|medium|high; sent to gpt-oss models only
-    analyzer_mode: str = "llm-first"  # "llm-first" | "rules-first" | "agent"
+    analyzer_mode: str = "llm-first"  # "llm-first" | "rules-first" | "agent" | "hybrid"
     shadow_mode: bool = False
     debounce_seconds: int = 60
     verify_window_seconds: int = 120
@@ -35,13 +35,15 @@ class Settings(BaseModel):
     cooldown_seconds: int = 600
     state_dir: Path = Path("~/.repair-loop")
     promotion_threshold: int = 3
+    promote_t2_after: int = 2  # verified T3 heals before a playbook becomes T2 (paper: 10)
+    promote_t1_after: int = 2  # verified T2 heals (LLM edit == rule edit) before T1 (paper: 50)
 
     @model_validator(mode="after")
     def _default_model(self) -> Settings:
         if self.llm_provider not in DEFAULT_MODELS:
             raise ValueError(f"REPAIR_LLM_PROVIDER must be one of {sorted(DEFAULT_MODELS)}, got {self.llm_provider!r}")
-        if self.analyzer_mode not in ("llm-first", "rules-first", "agent"):
-            raise ValueError(f"REPAIR_ANALYZER_MODE must be llm-first, rules-first or agent, got {self.analyzer_mode!r}")
+        if self.analyzer_mode not in ("llm-first", "rules-first", "agent", "hybrid"):
+            raise ValueError(f"REPAIR_ANALYZER_MODE must be llm-first, rules-first, agent or hybrid, got {self.analyzer_mode!r}")
         if not self.llm_model:
             self.llm_model = DEFAULT_MODELS[self.llm_provider]
         return self
@@ -66,6 +68,8 @@ class Settings(BaseModel):
             "cooldown_seconds": "REPAIR_COOLDOWN_SECONDS",
             "state_dir": "REPAIR_STATE_DIR",
             "promotion_threshold": "REPAIR_PROMOTION_THRESHOLD",
+            "promote_t2_after": "REPAIR_PROMOTE_T2_AFTER",
+            "promote_t1_after": "REPAIR_PROMOTE_T1_AFTER",
         }
         for field, var in mapping.items():
             if e.get(var):

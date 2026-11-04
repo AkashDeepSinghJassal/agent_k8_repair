@@ -514,7 +514,24 @@ def collect_and_store(
         attempt = ((incident.get("status") or {}).get("attempts") or 0) + 1
     bundle = collect(core_api, custom_api, github, incident, now=now)
     ref = store(bundle, attempt, state_dir, uid_tag(incident))
+    _emit_evidence(incident, bundle, attempt)
     return {"evidenceRef": ref, "signature": bundle["signature"]}
+
+
+def _emit_evidence(incident: dict, bundle: dict, attempt: int) -> None:
+    try:
+        from . import flow
+
+        logs = bundle.get("logs") or {}
+        log_lines = len(logs.get("current") or []) + len(logs.get("previous") or [])
+        related = bundle.get("related_files") or []
+        files = allowed_files(bundle)
+        configmaps = [r.get("name") for r in related if r.get("kind") == "ConfigMap"]
+        flow.emit_for(incident, "evidence", title=f"Collected evidence: {len(files)} file(s), {log_lines} log lines",
+                      data={"files": files, "events_count": len(bundle.get("events") or []), "log_lines": log_lines,
+                            "configmaps": configmaps, "attempt": attempt, "signature": bundle.get("signature")})
+    except Exception:
+        log.debug("evidence flow event failed", exc_info=True)
 
 
 def recovered(core_api: Any, incident: dict) -> str | None:

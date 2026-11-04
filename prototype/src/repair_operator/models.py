@@ -49,5 +49,7 @@ class Proposal(BaseModel):
     agent_meta: dict | None = Field(default=None, exclude=True)  # usage + status + trace of the agent run
     agent_evidence: str = Field(default="", exclude=True)  # text of every tool result (grounding)
     agent_files: list[str] = Field(default_factory=list, exclude=True)  # git paths the agent read
+    tier_used: str = Field(default="", exclude=True)  # "T1" | "T2" | "T3" in hybrid mode
+    playbook_id: str | None = Field(default=None, exclude=True)
     tier: int
     source: Literal["rules", "llm", "recipe", "agent"]

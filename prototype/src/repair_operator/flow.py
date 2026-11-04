@@ -69,6 +69,19 @@ def emit(
     return eid
 
 
+def emit_for(body: dict | None, kind: str, *, title: str, **kw: Any) -> str | None:
+    """``emit`` for a RepairIncident CR body (name + namespace from metadata). Never raises; None when unknown."""
+    try:
+        meta = (body or {}).get("metadata") or {}
+        name, ns = meta.get("name"), meta.get("namespace")
+        if not name:
+            return None
+        return emit(name, ns or "", kind, title=title, **kw)
+    except Exception as exc:  # noqa: BLE001  (tracing must never break the loop)
+        log.warning("flow emit_for failed: %s", exc)
+        return None
+
+
 def read(incident: str, namespace: str) -> list[dict]:
     """All events, in write order. Later events with the same id (span ends) replace the earlier one."""
     p = path_for(incident, namespace)

@@ -45,6 +45,7 @@ class GuardrailResult(BaseModel):
     ok: bool
     rejected_by: str | None = None
     details: str = ""
+    checks: list[dict] = []  # one {"name", "ok", "detail"} per executed check, in order (flow trace)
 
 
 class _MissingBinary(Exception):
@@ -266,6 +267,7 @@ def check(
         ("policy", lambda: policy(current_text, new_text, path, policy_dir)),
     ]
     details: list[str] = []
+    ran: list[dict] = []
     for name, fn in steps:
         if name in skipped:
             continue
@@ -273,7 +275,8 @@ def check(
             ok, msg = fn()
         except Exception as exc:  # noqa: BLE001 - fail closed on any unexpected error
             ok, msg = False, f"{type(exc).__name__}: {exc}"
+        ran.append({"name": name, "ok": bool(ok), "detail": str(msg)[:2000]})
         if not ok:
-            return GuardrailResult(ok=False, rejected_by=name, details=msg)
+            return GuardrailResult(ok=False, rejected_by=name, details=msg, checks=ran)
         details.append(f"{name}: {msg}")
-    return GuardrailResult(ok=True, rejected_by=None, details="; ".join(details))
+    return GuardrailResult(ok=True, rejected_by=None, details="; ".join(details), checks=ran)

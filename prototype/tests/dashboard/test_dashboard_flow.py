@@ -45,6 +45,7 @@ def test_recent_flows_summary(client):
 
 def test_playbooks_empty_without_module(client, monkeypatch):
     monkeypatch.setitem(sys.modules, "repair_operator.playbooks", None)
+    monkeypatch.delattr("repair_operator.playbooks", raising=False)
     assert client.get("/api/playbooks").json() == []
     assert client.get("/api/playbooks/pb-1").status_code == 404
 
@@ -59,6 +60,7 @@ def test_playbooks_from_module(client, monkeypatch):
     fake = types.ModuleType("repair_operator.playbooks")
     fake.list_all = lambda: [PB("pb-1", "T2", [{"event": "captured"}])]
     monkeypatch.setitem(sys.modules, "repair_operator.playbooks", fake)
+    monkeypatch.setattr("repair_operator.playbooks", fake, raising=False)  # the real module now exists as a package attribute
     assert client.get("/api/playbooks").json()[0]["state"] == "T2"
     assert client.get("/api/playbooks/pb-1").json()["history"] == [{"event": "captured"}]
     assert client.get("/api/playbooks/zzz").status_code == 404
