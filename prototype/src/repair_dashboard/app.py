@@ -143,6 +143,8 @@ def _fault_view(entry: dict, backend: FaultBackend, reader: KubeReader) -> dict:
             logging.getLogger(__name__).debug("fault %s: git check skipped: %s", entry["id"], exc)
     keys = ("id", "title", "description", "namespace", "kind", "expected_class", "expected_outcome", "correct_fix")
     view = {k: entry[k] for k in keys}
+    if entry.get("restart_target"):  # data-driven "Restart X pods" shortcut (catalog.yaml)
+        view["restart_target"] = entry["restart_target"]
     view.update(injected=since is not None, injectedAt=since, incident=_linked_incident(entry, since, reader))
     return view
 
@@ -329,6 +331,88 @@ def agent_trace(ns: str, name: str):
             except (OSError, ValueError):
                 continue
     return [t for _, t in sorted(found, key=lambda x: -x[0])]
+
+
+# ------------------------------------------------------------ flow trace and playbooks (V4_CONTRACT.md 1, 2, 5)
+TERMINAL_PHASES = ("Healed", "Failed", "Escalated", "Dismissed")
+
+
+def _token_count(t) -> int:
+    if isinstance(t, (int, float)):
+        return int(t)
+    if isinstance(t, dict):
+        return int(t.get("input", 0) or 0) + int(t.get("output", 0) or 0)
+    return 0
+
+
+def _flow_summary(ns: str, name: str, events: list[dict]) -> dict:
+    """One-line digest of a flow: tier used, outcome, steps, tokens, start and end."""
+    tier = None
+    outcome = None
+    tokens = 0
+    fault = None
+    for ev in events:
+        data = ev.get("data") or {}
+        if ev["kind"] in ("route", "proposal") and (data.get("tier") or data.get("chosen")):
+            tier = data.get("tier") or data.get("chosen")
+        if ev["kind"] == "agent_end":
+            tokens += int(data.get("input_tokens") or 0) + int(data.get("output_tokens") or 0)
+        elif ev["kind"] == "llm_call":
+            tokens += _token_count(data.get("tokens"))
+        elif ev["kind"] == "outcome":
+            outcome = data.get("phase") or ev.get("title")
+        elif ev["kind"] == "detected":
+            fault = data.get("fault") or fault
+    tier = tier or next((e.get("tier") for e in reversed(events) if e.get("tier")), None)
+    return {
+        "incident": name, "namespace": ns, "tier": tier, "outcome": outcome, "fault": fault,
+        "steps": sum(1 for e in events if e["kind"] == "tool_call"), "tokens": tokens,
+        "events": len(events), "start": events[0]["ts"] if events else None,
+        "end": events[-1]["ts"] if events else None, "terminal": outcome in TERMINAL_PHASES,
+    }
+
+
+@app.get("/api/incidents/{ns}/{name}/flow")
+def incident_flow(ns: str, name: str):
+    from repair_operator import flow
+
+    return {"incident": name, "namespace": ns, "events": flow.read(name, ns)}
+
+
+@app.get("/api/flows/recent")
+def recent_flows(limit: int = 20):
+    from repair_operator import flow
+
+    out = []
+    for ns, name, _mtime in flow.list_flows(max(1, min(limit, 200))):
+        out.append(_flow_summary(ns, name, flow.read(name, ns)))
+    return out
+
+
+def _playbooks() -> list[dict]:
+    """All playbooks as plain dicts; empty when the playbooks module or its store is not there yet."""
+    try:
+        from dataclasses import asdict, is_dataclass
+
+        from repair_operator import playbooks
+
+        return [asdict(p) if is_dataclass(p) else dict(p) for p in playbooks.list_all()]
+    except Exception as exc:  # noqa: BLE001 - the commit succeeded; Argo CD will still pick it up by polling
+        logging.getLogger(__name__).debug("playbooks unavailable: %s", exc)
+        return []
+
+
+@app.get("/api/playbooks")
+def list_playbooks():
+    return _playbooks()
+
+
+@app.get("/api/playbooks/{playbook_id}")
+def get_playbook(playbook_id: str):
+    for p in _playbooks():
+        if p.get("id") == playbook_id:
+            return p
+    raise HTTPException(404, "playbook not found")
 
 
 @app.post("/api/pipelines/rerun")

@@ -247,9 +247,10 @@ function faultCard(f) {
 // F4 and F8 only change a ConfigMap (api); F10 renames the api Service, which the running frontend
 // resolved at startup; F11 renames the key the frontend mounts, F12 renames the ConfigMap api-b references.
 // The affected pod does not fail until it restarts.
+// The catalog's restart_target field wins; this map is only the fallback for catalogs without it.
 const RESTART_TARGET = { F4: "api", F8: "api", F10: "frontend", F11: "frontend", F12: "api-b" };
-const needsRestart = (f) => f.id in RESTART_TARGET;
-const restartTarget = (f) => RESTART_TARGET[f.id];
+const restartTarget = (f) => f.restart_target || RESTART_TARGET[f.id];
+const needsRestart = (f) => !!restartTarget(f);
 function restartShortcut(f) {
   if (!needsRestart(f)) return null;
   const err = h("span", { class: "inline-error", role: "alert" });
@@ -300,7 +301,8 @@ function renderIncidents(list) {
   root.append(table("Repair incidents", ["Incident", "Class", "Tier", "Progress", "PR", "Attempts", "Opened"],
     list.map((i) => h("tr", {},
       h("td", {}, h("button", { type: "button", class: "linkish", onclick: () => openDrawer(i.namespace, i.name) }, i.name),
-        h("div", { class: "muted mono" }, i.namespace)),
+        h("div", { class: "muted mono" }, i.namespace),
+        h("button", { type: "button", class: "btn btn-small", onclick: () => openTrace(i.namespace, i.name) }, "Trace")),
       h("td", {}, i.class || "-", i.shadow ? h("div", {}, badge("shadow")) : null),
       h("td", {}, i.tier ?? "-"),
       h("td", {}, stepBar(i)),
@@ -332,6 +334,7 @@ function closeDrawer() {
 function drawerContent(i) {
   const p = i.proposal;
   const out = [
+    h("button", { type: "button", class: "btn btn-primary", onclick: () => openTrace(i.namespace, i.name) }, "Trace"),
     stepBar(i),
     h("dl", { class: "kv" },
       h("dt", {}, "Class"), h("dd", {}, i.class ? `${i.class} (${i.confidence ?? "?"}, via ${i.source || "?"})` : "-"),

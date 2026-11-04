@@ -23,7 +23,30 @@
   </div>
 </header>
 
-<main>
+<nav class="tabs" role="tablist" aria-label="Views">
+  <button id="tab-overview" type="button" role="tab" class="tab on" aria-selected="true">Overview</button>
+  <button id="tab-traces" type="button" role="tab" class="tab" aria-selected="false">Recent flows</button>
+  <button id="tab-knowledge" type="button" role="tab" class="tab" aria-selected="false">Knowledge</button>
+</nav>
+
+<main id="view-traces" hidden>
+  <section aria-labelledby="h-flows">
+    <h2 id="h-flows">Recent flows</h2>
+    <p class="muted">Every incident's step-by-step trace is kept on disk, so it can be reopened after the incident object is gone.</p>
+    <div id="recent-flows"><p class="muted">Loading...</p></div>
+  </section>
+</main>
+
+<main id="view-knowledge" hidden>
+  <section aria-labelledby="h-kn">
+    <h2 id="h-kn">Knowledge: playbooks learned from healed incidents</h2>
+    <p class="muted">A playbook is the tool sequence and edit recipe crystallized from a successful agent run. State T3 = candidate (agent still runs), T2 = hybrid, T1 = fully deterministic. Click a row for its history, steps and edit template.</p>
+    <div id="playbook-list"><p class="muted">Loading...</p></div>
+    <div id="playbook-detail" class="pb-detail"></div>
+  </section>
+</main>
+
+<main id="view-overview">
   <section aria-labelledby="h-services">
     <h2 id="h-services">Services</h2>
     <div id="services" class="ns-groups"></div>
@@ -66,6 +89,23 @@
   <div id="drawer-body"></div>
 </aside>
 
+<dialog id="trace" class="trace" aria-labelledby="trace-title">
+  <header class="trace-head">
+    <div class="trace-titles">
+      <h3 id="trace-title">Trace</h3><span id="trace-sub" class="muted"></span>
+    </div>
+    <div id="trace-meta" class="trace-meta" role="status"></div>
+    <button id="trace-close" type="button" class="btn" aria-label="Close trace">Close</button>
+  </header>
+  <ol id="trace-strip" class="strip" aria-label="Flow stages"></ol>
+  <div class="trace-tools">
+    <div id="trace-filters" class="chips" role="group" aria-label="Filter events"></div>
+    <input id="trace-search" type="search" placeholder="Search titles and arguments" aria-label="Search events">
+    <button id="trace-expand" type="button" class="btn">Expand / collapse all</button>
+  </div>
+  <div id="trace-timeline" class="timeline" tabindex="-1"></div>
+</dialog>
+
 <dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-body">
   <form method="dialog">
     <h3 id="confirm-title">Confirm</h3>
@@ -79,5 +119,6 @@
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script src="app.js"></script>
+<script src="trace.js"></script>
 </body>
 </html>
