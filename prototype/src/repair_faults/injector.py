@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -35,6 +36,12 @@ REQUIRED_KEYS = {
     "expected_outcome",
     "correct_fix",
 }
+# Optional keys: restart_target (deployment to restart after Argo syncs), evidence_milestones (2-4 facts a
+# correct investigation must establish), post_inject_commands / post_revert_commands (kubectl argv lists run
+# after the commit of a git fault, e.g. noise), submit_workflow + argo_app (create a release-pipeline run once
+# Argo CD has synced the injected commit (submit_delay_seconds waits longer, e.g. for terminating pods to leave the Service), for faults whose symptom is a failing workflow step).
+SYNC_WAIT_SECONDS = 150
+_sleep = time.sleep
 
 
 class FaultError(Exception):
@@ -118,6 +125,7 @@ def _validate_entry(entry: dict[str, Any]) -> None:
         raise FaultError(f"{fid}: unknown expected_class {entry['expected_class']!r}")
     if entry["expected_outcome"] not in OUTCOMES:
         raise FaultError(f"{fid}: unknown expected_outcome {entry['expected_outcome']!r}")
+    _validate_optional(entry)
     if entry["kind"] == "cluster":
         if entry["target_file"] is not None:
             raise FaultError(f"{fid}: cluster faults must have target_file null")
@@ -129,6 +137,27 @@ def _validate_entry(entry: dict[str, Any]) -> None:
         for edit in entry["breaking_edits"]:
             if set(edit) != {"find", "replace"} or not edit["find"]:
                 raise FaultError(f"{fid}: each breaking edit needs non-empty find and replace")
+
+
+def _validate_optional(entry: dict[str, Any]) -> None:
+    fid = entry["id"]
+    target = entry.get("restart_target")
+    if target is not None and not (isinstance(target, str) and target):
+        raise FaultError(f"{fid}: restart_target must be a non-empty deployment name")
+    milestones = entry.get("evidence_milestones")
+    if milestones is not None and not (
+        isinstance(milestones, list) and 2 <= len(milestones) <= 4 and all(isinstance(m, str) and m for m in milestones)
+    ):
+        raise FaultError(f"{fid}: evidence_milestones must be a list of 2-4 non-empty strings")
+    for key in ("post_inject_commands", "post_revert_commands"):
+        cmds = entry.get(key)
+        if cmds is not None and not (isinstance(cmds, list) and all(isinstance(c, list) and c for c in cmds)):
+            raise FaultError(f"{fid}: {key} must be a list of kubectl argv lists")
+    delay = entry.get("submit_delay_seconds", 0)
+    if not isinstance(delay, int) or delay < 0:
+        raise FaultError(f"{fid}: submit_delay_seconds must be a non-negative integer")
+    if entry.get("submit_workflow") and not entry.get("argo_app"):
+        raise FaultError(f"{fid}: submit_workflow needs argo_app")
 
 
 def list_faults(path: Path = CATALOG_PATH) -> list[dict[str, Any]]:
@@ -179,6 +208,26 @@ def _commit_message(entry: dict[str, Any], revert: bool) -> str:
     return f"fault({entry['id']}): {entry['title']}\n\nRepair-Fault: {entry['id']}"
 
 
+def _wait_synced(kube: KubectlRunner, app: str, sha: str) -> bool:
+    """Hard-refresh the Argo CD app and wait until it is Synced at ``sha``. False on timeout (best effort)."""
+    kube(["-n", "argocd", "annotate", "application", app, "argocd.argoproj.io/refresh=hard", "--overwrite"])
+    for _ in range(SYNC_WAIT_SECONDS // 5):
+        out = kube(["-n", "argocd", "get", "application", app, "-o", "jsonpath={.status.sync.revision} {.status.sync.status}"])
+        parts = out.split()
+        if len(parts) == 2 and sha.startswith(parts[0][:7]) and parts[1] == "Synced":
+            return True
+        _sleep(5)
+    return False
+
+
+def _run_post(entry: dict[str, Any], key: str, kube: KubectlRunner | None, result: dict[str, Any]) -> KubectlRunner | None:
+    for argv in entry.get(key) or []:
+        kube = kube or Kubectl()
+        kube(list(argv))
+        result["actions"].append(["kubectl", *argv])
+    return kube
+
+
 def _workflow_run_manifest(namespace: str) -> str:
     return (
         "apiVersion: argoproj.io/v1alpha1\n"
@@ -220,6 +269,13 @@ def inject(
         kube(["-n", entry["namespace"], "create", "-f", "-"], stdin=_workflow_run_manifest(entry["namespace"]))
         result["actions"].append(["kubectl apply template", DEFAULT_WORKFLOW_TEMPLATE])
         result["actions"].append(["kubectl create workflow run", entry["namespace"]])
+    kube = _run_post(entry, "post_inject_commands", kubectl, result)
+    if entry["kind"] == "git" and entry.get("submit_workflow"):
+        kube = kube or Kubectl()
+        result["synced"] = _wait_synced(kube, entry["argo_app"], result["commit"])
+        _sleep(int(entry.get("submit_delay_seconds", 0)))
+        kube(["-n", entry["namespace"], "create", "-f", "-"], stdin=_workflow_run_manifest(entry["namespace"]))
+        result["actions"].append(["kubectl create workflow run", entry["namespace"]])
     return result
 
 
@@ -249,6 +305,7 @@ def revert(
         kube = kubectl or Kubectl()
         kube(["-n", entry["namespace"], "apply", "-f", "-"], stdin=new_text)
         result["actions"].append(["kubectl apply template", DEFAULT_WORKFLOW_TEMPLATE])
+    _run_post(entry, "post_revert_commands", kubectl, result)
     return result
 
 

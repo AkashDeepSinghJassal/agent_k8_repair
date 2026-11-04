@@ -23,7 +23,7 @@ from repair_faults.injector import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16"]
+GIT_IDS = ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15", "F16"] + [f"F{i}" for i in range(17, 28)]
 
 
 def _fixture_text(path: str) -> str:
@@ -64,14 +64,14 @@ def fixture_files() -> dict[str, str]:
 # --- catalog ---------------------------------------------------------------------------------
 
 
-def test_catalog_has_f1_to_f16_in_order():
-    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 17)]
+def test_catalog_has_f1_to_f27_in_order():
+    assert [e["id"] for e in list_faults()] == [f"F{i}" for i in range(1, 28)]
 
 
 def test_catalog_entries_validate_and_are_in_package():
     assert CATALOG_PATH.parent.name == "repair_faults"
     entries = load_catalog(CATALOG_PATH)
-    assert len(entries) == 16
+    assert len(entries) == 27
     for entry in entries:
         assert entry["expected_outcome"] in {"Healed", "Escalated", "Blocked"}
         assert entry["expected_class"] in injector.TAXONOMY
@@ -294,7 +294,7 @@ def test_default_git_reads_repo_and_branch_from_env(monkeypatch):
 def test_cli_list_prints_all_faults(capsys):
     assert cli_main(["list"]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
-    assert len(lines) == 16
+    assert len(lines) == 27
     assert lines[0].startswith("F1\tgit\tOOM_KILLED")
 
 
@@ -312,3 +312,102 @@ def test_is_injected_distinguishes_healthy_from_broken(fault_id):
     healthy = _fixture_text(entry["target_file"])
     assert not is_injected(entry, healthy)
     assert is_injected(entry, apply_edits(healthy, edits_for(entry)))
+
+
+# --- evidence_milestones, restart_target, new fault mechanics ----------------------------------
+
+
+@pytest.mark.parametrize("fault_id", [f"F{i}" for i in range(1, 28)])
+def test_every_fault_has_two_to_four_evidence_milestones(fault_id):
+    milestones = get_fault(fault_id)["evidence_milestones"]
+    assert 2 <= len(milestones) <= 4 and all(isinstance(m, str) and m for m in milestones)
+
+
+def test_restart_targets_only_where_crash_needs_a_restart():
+    targets = {e["id"]: e["restart_target"] for e in list_faults() if "restart_target" in e}
+    assert targets == {"F10": "frontend", "F11": "frontend", "F12": "api-b"}
+
+
+def test_invalid_optional_keys_are_rejected(tmp_path):
+    base = get_fault("F1")
+    for key, value, match in [
+        ("evidence_milestones", ["only one"], "evidence_milestones"),
+        ("restart_target", "", "restart_target"),
+        ("post_inject_commands", ["delete"], "post_inject_commands"),
+        ("submit_workflow", True, "argo_app"),
+    ]:
+        bad = tmp_path / "catalog.yaml"
+        import yaml
+
+        bad.write_text(yaml.safe_dump({"faults": [{**base, key: value}]}), encoding="utf-8")
+        with pytest.raises(FaultError, match=match):
+            load_catalog(bad)
+
+
+def test_f17_f20_submit_a_workflow_after_argo_sync(fixture_files, monkeypatch):
+    monkeypatch.setattr(injector, "_sleep", lambda _s: None)
+    for fault_id, needle in [("F17", "targetPort: 8080"), ("F20", "replicas: 0")]:
+        git = FakeGit(fixture_files)
+
+        class Kube(FakeKubectl):
+            def __call__(self, args, stdin=None):
+                super().__call__(args, stdin)
+                return "sha1 Synced" if "get" in args else ""
+
+        kube = Kube()
+        result = inject(fault_id, git=git, kubectl=kube)
+        assert needle in git.commits[0][1]
+        assert result["synced"] is True
+        refresh, get, create = (c[0] for c in kube.calls)
+        assert "argocd.argoproj.io/refresh=hard" in refresh and "demo-app" in refresh
+        assert get[:4] == ["-n", "argocd", "get", "application"]
+        assert create == ["-n", "demo", "create", "-f", "-"]
+        assert "workflowTemplateRef" in kube.calls[-1][1]
+
+
+def test_f17_gives_up_waiting_for_sync_but_still_submits(fixture_files, monkeypatch):
+    monkeypatch.setattr(injector, "_sleep", lambda _s: None)
+    kube = FakeKubectl()
+    result = inject("F17", git=FakeGit(fixture_files), kubectl=kube)
+    assert result["synced"] is False
+    assert kube.calls[-1][0][:3] == ["-n", "demo", "create"]
+
+
+def test_f27_deletes_noise_pods_after_commit(fixture_files):
+    git = FakeGit(fixture_files)
+    kube = FakeKubectl()
+    inject("F27", git=git, kubectl=kube)
+    assert "python:3.12-alpine3.99" in git.commits[0][1]
+    assert [c[0] for c in kube.calls] == [
+        ["-n", "demo", "delete", "pod", "-l", "app=redis"],
+        ["-n", "demo", "delete", "pod", "-l", "app=frontend"],
+    ]
+    kube.calls.clear()
+    revert("F27", git=git, kubectl=kube)
+    assert kube.calls == []
+
+
+def test_f18_adds_secret_without_the_referenced_key(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/worker.yaml"], edits_for(get_fault("F18")))
+    assert "kind: Secret" in broken and "key: WORKER_TOKEN" in broken and "WORKER_ID: w-1" in broken
+
+
+def test_f21_shadows_envfrom_with_empty_env(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/api.yaml"], edits_for(get_fault("F21")))
+    assert 'name: DB_URL\n              value: ""\n          envFrom:' in broken
+
+
+def test_f26_is_a_two_fault_compound(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/api.yaml"], edits_for(get_fault("F26")))
+    assert "memory: 32Mi" in broken and "path: /livez" in broken
+
+
+def test_f23_escalates_on_image_pull():
+    f23 = get_fault("F23")
+    assert (f23["expected_class"], f23["expected_outcome"]) == ("IMAGE_PULL", "Escalated")
+
+
+def test_f24_anti_affinity_needs_two_replicas_and_required_rule(fixture_files):
+    broken = apply_edits(fixture_files["deploy/demo/worker.yaml"], edits_for(get_fault("F24")))
+    assert "replicas: 2" in broken and "requiredDuringSchedulingIgnoredDuringExecution" in broken
+    assert "topologyKey: kubernetes.io/hostname" in broken

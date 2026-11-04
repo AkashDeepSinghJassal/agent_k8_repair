@@ -137,7 +137,7 @@ data:
       index index.html;
 
       location /api/ {
-        proxy_pass http://api:8000/;
+        proxy_pass http://api-svc:8000/;
       }
 
       location / {
