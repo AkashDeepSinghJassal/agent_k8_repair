@@ -216,3 +216,93 @@ Revert after each fault, wait for Argo `demo-app` Synced/Healthy and pods Ready,
 | 26 | F26 compound: api memory 32Mi (F1) plus liveness path /livez (F19) | yes (12:34:13.7Z, 12 s after inject returned 12:34:01Z, OOMKilled) | OOM_KILLED (classHint OOM_KILLED, matches expected) | T3 | 5 (6 agent steps: git_read, git_log, k8s_describe_pod, git_diff, propose_patch) | 36,147 / 1,386 ($0.047, claude-cli sonnet) | deploy/demo/api.yaml | memory 24Mi->96Mi and 32Mi->128Mi; the liveness path /livez is NOT changed | Commit a2d2fd0 lowered api memory to 24Mi/32Mi (OOMKilled 137); the /livez probe change from the same bad commit is not mentioned | partial (the OOM limit is restored; the /livez liveness path stays, so the pod would fail its probe again after the memory fix; the catalog says both fixes are needed) | 1/3 (describe_pod shows OOMKilled 137 with the 32Mi limit; the 404 on /livez after the memory fix was not observed; the "one commit introduced both changes" point was not established, git_diff showed only memory) | none fired (Escalated) | 31.7 s (12:34:13.7Z to 12:34:45.4Z) | Escalated (shadow_mode), one agent run, one proposal, one outcome; learn skipped. Incident `ri-6d7ca9f087-4` (base name reused from F1 `ri-6d7ca9f087`, suffix -4, B7). No duplicates. Anomaly: after the revert the /livez pod in CrashLoopBackOff was pruned on its own within about 1 min; no new incident (it was the same owner, so suppression held). Revert at 12:35:00Z, Argo Synced/Healthy at 12:35:09Z, api 1/1 Running (single pod). Incident deleted. |
 | 27 | F27 bad worker image tag under noise (redis and frontend pods deleted) | yes (12:35:41.7Z, 8 s after inject returned 12:35:33Z, worker pod ErrImagePull) | IMAGE_PULL (classHint IMAGE_PULL, matches expected) | T3 | 4 (5 agent steps: git_read, git_log, git_diff, propose_patch) | 32,219 / 860 ($0.036, claude-cli sonnet) | deploy/demo/worker.yaml | image `python:3.12-alpine3.99` -> `python:3.12-alpine` | Commit b29d8bd changed the worker image to python:3.12-alpine3.99, a tag that does not exist, so the pull fails with NotFound | yes | 2/3 (ErrImagePull and the not-found registry error from the seed and the pod event; git_diff shows the tag from b29d8bd; the "redis and frontend were noise and are Running" point was not checked, the agent did not read those pods) | none fired (Escalated) | 30.7 s (12:35:41.7Z to 12:36:12.4Z) | Escalated (shadow_mode), one agent run, one proposal, one outcome; learn skipped. Noise: the redis and frontend pods restarted at 12:35:33Z and came back Running in about 8 s; no incident was opened for them (checked the incident list through the proposal). Distraction: none, the agent proposed only the worker tag. Incident `ri-6f29b6cdf9`, new base name. No duplicates. Revert at 12:36:30Z, Argo Synced/Healthy at about 12:36:36Z, worker 1/1 Running (the transient ImagePullBackOff pod was pruned). Incident deleted. |
 | 13 | F13 api-b liveness probe on wrong port (8001) | not detected (12 min window, 12:36:52Z to 12:48:52Z; checked to 12:54Z) | - | - | - | - | - | - | Probe failures are "connection refused on 8001". The first kubelet kill came at 12:45:06Z, about 8 min after the container started at 12:37:01Z (the catalog expects about 40 s). The restart is exit 137 with restartCount 1, and the operator logged it as "not interested" (kopf: same essence), so no incident. No second restart by 12:54Z, so no CrashLoopBackOff, which is what the detector needs. | n/a | 0/3 (no incident) | - | - | Anomaly for the record: the kubelet restart delay (about 8 min) is far longer than the catalog's 40 s. The detector does not treat a single restart (Error, exit 137) as a fault, so the fault is detected only after CrashLoopBackOff, which this kind node did not reach within the window. Revert at 12:54:00Z, Argo demo-app-b Synced/Healthy at 12:54:11Z, new api-b pod 1/1 Running (the old pod Terminating at 12:54:15Z). No incident to delete. |
+
+## Run 6: final verification (issues #28, #30)
+
+Demo started before 13:03Z with `REPAIR_SHADOW_MODE=1 REPAIR_ANALYZER_MODE=hybrid REPAIR_AGENT_PROVIDER=claude-cli` (`start_demo.sh` brought up the operator and dashboard; LLM fallback groq). Pre-run: `pb-1bf9` (F4) was T2 from Run 5, re-seeded with `seed_playbook.py --incident demo/ri-ef9d6f8d30-2 --state T1` (5 steps, fail 0). `pb-e4db` (F5) T3. `active-faults.json` = `{"demo": {"fault": "F1"}}` (stale, same as Run 1 and Run 5); the live cluster was at baseline (api 128Mi, `/healthz`, DB_URL present, api-b port 8000). One fault at a time; revert and wait for Argo Synced/Healthy before the next.
+
+### V1 F21 collision: PASS
+
+| Expectation | Result |
+| --- | --- |
+| F4 playbook tried, then mismatch/collision recorded, fall back to T3 | PASS: route chain T1 -> T2 -> T3. T1 mismatch at 13:04:15Z (db_url "rule did not match"), T2 replay mismatch at 13:04:17Z, `collision` at 13:04:22Z ("fix already present but the workload still fails"), route T3 at 13:04:23Z |
+| F4 playbook STAYS T1 (`/api/playbooks` before and after) | PASS: `pb-1bf9` T1 before and after, fail 0, mismatch_streak 0 -> 1 (not demoted, B8 fix) |
+| one incident | PASS: `ri-ef9d6f8d30-12` only |
+| T3 proposal removes the empty DB_URL from `deploy/demo/api.yaml` | PASS |
+
+### V2 F4 (T1 replay): PASS
+
+| Expectation | Result |
+| --- | --- |
+| tier T1, 0 tokens, no LLM (`scenario_check.py --expect-tier T1 --expect-no-llm`) | PASS: RESULT PASS, route T1 with 0 verified runs, 0 llm_call, 0 agent |
+| DB_URL fix | PASS: `deploy/demo/configmaps.yaml`, add `DB_URL: redis://redis:6379` to api-config |
+| playbook unharmed | PASS: `pb-1bf9` T1, fail 0 |
+
+### V3 F13 and F19 (liveness probe faults): FAIL
+
+| Expectation | F13 (api-b, port 8001) | F19 (api, path /livez) |
+| --- | --- | --- |
+| incident within about 4 min of the 3rd restart | PASS: 3rd restart about 13:10:50Z; escalated incident detected 13:14:21Z (3 min 31 s). The incident at the 3rd restart was dismissed | PASS: 3rd restart at 13:19:35Z; escalated incident detected 13:23:06Z (3 min 31 s). The incident at the 3rd restart was dismissed |
+| class hint CRASH_LOOP | PASS | PASS |
+| reason LivenessProbeRestarts | FAIL: the LivenessProbeRestarts incidents were dismissed ("pod recovered within the debounce window"); the escalated incident reason was CrashLoopBackOff | FAIL: same (3 LivenessProbeRestarts incidents dismissed; escalated reason CrashLoopBackOff) |
+| proposal fixes the probe per `correct_fix` | PASS: `deploy/demo-b/api-b.yaml`, livenessProbe port 8001 -> 8000 | PASS: `deploy/demo/api.yaml`, livenessProbe path /livez -> /healthz |
+
+Overall V3 FAIL: both proposals are correct and escalate within the window, but the detector's first incident for each fault (reason LivenessProbeRestarts) is dismissed as recovered by the debounce check (Bug B9).
+
+### Rows
+
+| # | Fault | Detected | Class | Tier | Tool calls | Tokens (in/out) | File | Edit | Root cause | Fix correct | Milestones | Guardrails | Detect to proposal | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 21 (V1) | F21 env var shadowing (empty DB_URL in api Deployment) | yes (13:03:55.5Z, 12 s after inject returned 13:03:43Z, CrashLoopBackOff, classHint CRASH_LOOP) | CONFIG_ERROR (agent), CRASH_LOOP hint matches expected | T3 (chain T1 -> T2 -> T3, collision fallback) | 17 (T1 5 replay, T2 5 replay, T3 7 agent calls, 8 steps) | T3 37,316 / 1,514 ($0.051, claude-cli sonnet); T2 narrow call tokens not reported | deploy/demo/api.yaml | remove the `DB_URL: ""` env entry | Commit ee29b48 added an explicit DB_URL="" to the api Deployment, which shadows the ConfigMap value | yes | 3/3 (logs "DB_URL not set"; api-config holds DB_URL; git_diff of ee29b48 adds the empty env entry) | none fired (Escalated) | 51.0 s (13:03:55.5Z to 13:04:46.5Z) | Collision handled as specified. Playbook pb-1bf9 stays T1. One incident, no duplicates. Revert commit 55ceae8 at 13:05:07Z, Argo Synced/Healthy 13:05:23Z, api 1/1 Running. Incident deleted. |
+| 4 (V2) | F4 DB_URL removed | yes (13:05:51.8Z, 3 s after inject returned 13:05:48Z, classHint CRASH_LOOP) | CONFIG_ERROR (T1 replay) | T1 | 5 replay (describe_pod, logs, git_read, git_log, git_diff), all ok | 0 / 0 (0 llm_call, 0 agent) | deploy/demo/configmaps.yaml | add `DB_URL: redis://redis:6379` to api-config | api-config lost DB_URL; introducing commit d1af24f (sha_6 from the path-filtered git_log) | yes | 3/3 (replay logs "DB_URL not set"; git_log extract sha_6 = d1af24f; git_diff extract db_url = redis://redis:6379) | none fired (Escalated) | 19.6 s (13:05:51.8Z to 13:06:11.4Z) | Incident ri-ef9d6f8d30-13. Learn skipped. `pb-1bf9` stays T1, fail 0. Revert at 13:06:44Z, Argo Synced/Healthy 13:07:00Z, api 1/1 Running (new pod). Incident deleted. |
+| 13 (V3) | F13 api-b liveness probe on wrong port (8001) | yes: LivenessProbeRestarts at the 3rd restart (about 13:10:50Z), dismissed at 13:10:56Z; the escalated incident was CrashLoopBackOff, detected 13:14:21Z | CRASH_LOOP (classHint CRASH_LOOP) | T3 | 6 (7 agent steps) | 37,923 / 1,359 ($0.050, claude-cli sonnet) | deploy/demo-b/api-b.yaml | livenessProbe port 8001 -> 8000 | Agent root cause: commit 803d770 changed the liveness port 8000 -> 8001; the app listens on 8000, so the kubelet kills the container (exit 137) | yes | not scored (shadow run; the rationale names 803d770 and the port) | none fired (Escalated) | 44.2 s (13:14:21.2Z to 13:15:05.4Z); first detection to proposal 4 min 14 s (13:10:51Z to 13:15:05Z) | Three LivenessProbeRestarts incidents (`ri-cd7565151d`, `-2`, `-3`) were dismissed "pod recovered within the debounce window" (about 5 s after detection, each), so the first proposal came from a later CrashLoopBackOff incident `ri-047334f3e2`. Revert at 13:15:31Z, Argo demo-app-b Synced/Healthy 13:15:46Z, api-b 1/1 Running. All four incidents deleted. |
+| 19 (V3) | F19 api liveness probe path wrong (/livez, 404) | yes: LivenessProbeRestarts at the 3rd restart (13:19:35Z), dismissed at 13:19:43Z, 13:20:50Z and 13:21:55Z (3 incidents); the escalated incident was CrashLoopBackOff, detected 13:23:06Z | CRASH_LOOP (classHint CRASH_LOOP) | T3 | 6 (7 agent steps) | 37,890 / 1,305 ($0.049, claude-cli sonnet) | deploy/demo/api.yaml | livenessProbe path /livez -> /healthz | Agent root cause: commit 694fa04 changed the liveness path /healthz -> /livez; the app returns 404 for /livez, so the kubelet kills the container (exit 137) | yes | not scored (shadow run; the rationale names 694fa04 and the path) | none fired (Escalated) | 30.1 s (13:23:06.0Z to 13:23:36.1Z); first detection to proposal 4 min 1 s (13:19:35Z to 13:23:36Z) | Incident `ri-ef9d6f8d30-14` (shares the F4 base name, B7). The dismissed incidents `ri-c8280554ce`, `-2`, `-3` were deleted. Escalated `-14` deleted after the revert. Revert at 13:30:39Z, Argo demo-app Synced/Healthy 13:30:54Z, api 1/1 Running. Pod CrashLoopBackOff from 13:28Z until the revert (about 15 min total from injection at 13:15:58Z). |
+
+### Bugs (Run 6)
+
+- **B9 Liveness restart detections are dismissed as "pod recovered" (F13, F19).** The `LivenessProbeRestarts` signal fires on a Running pod. At the debounce check the pod is Running between kubelet kills, so the incident is Dismissed with "pod recovered within the debounce window" in about 5 s, every time (F13: 3 dismissed, F19: 3 dismissed). A fresh incident opens on the next restart, so the faults were eventually escalated only through the `CrashLoopBackOff` reason. Fix: the debounce check should treat a restart-loop signal (restartCount rising, or `LivenessProbeRestarts` seen within the window) as still failing, not as recovered. Not fixed in this run (no source edits, per the verifier rules).
+- **B7 (repeat).** The F19 escalated incident reused the F4 base name `ri-ef9d6f8d30` (suffix -14), because the fingerprint is the same owner/container family. The F4 name was also used by the V2 incident (`-13`).
+
+### Cleanup state (end of Run 6, before `stop_demo.sh`)
+
+- No fault injected: `active-faults.json` = `{}`; repos at baseline; api 1/1 Running (demo), api-b 1/1 Running (demo-b); Argo `demo-app` and `demo-app-b` Synced/Healthy.
+- No RepairIncidents from this run remain. Pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place.
+- Playbooks: `pb-1bf9` (F4) T1, fail 0, mismatch_streak 0. `pb-e4db` (F5) T3, fail 1.
+
+## Summary
+
+Covers Runs 1 to 6 in this file. Numbers are taken from the rows and sections above. "Latest run" means the last injection of a fault, used where a fault was re-run after a fix or re-test.
+
+- **Faults attempted:** 39 injections across 24 distinct faults (F1, F4, F5, F6, F8 to F27). Not attempted: F2 and F3 (in the planned order header, never run). F7 skipped (taints the node).
+- **Detected:** 37 of 39 injections. Not detected: F4 in Run 1 (no restart target in the catalog, B3) and F13 in Run 5 (kubelet restart delay of about 8 min). Latest run per fault: 24 of 24 detected. F13 and F19 incidents were opened and then dismissed by the debounce check before a later incident escalated (Run 6, B9).
+- **Fix outcome (latest run per fault):** correct 20, partial 4 (F8, F18, F23, F26), symptom or wrong 0, escalated without a proposal 0. Faults re-run with a later latest run: F4 (Run 6 V2; earlier Runs 2 to 5), F5 (Run 3 S2), F10, F11, F12 (Run 3 S4; Run 2 had symptom-only fixes), F13 (Run 6; Run 5 not detected), F15 (Run 3 S5; Run 2 escalated), F21 (Run 6 V1; Run 4 false dismissal, Run 5 correct).
+- **Tier usage (final tier per injection, 37 detected):** T1 3, T2 5, T3 29.
+- **Average cost:** T3 $0.0555 per agent run (32 runs with a reported cost; F6 in Run 2 excluded, cost not reported). T2 $0.036 per narrow LLM call (5 calls with a reported cost). T1 $0 (0 tokens, no LLM).
+- **Detection to proposal:** T1 20.6 s (3 runs). T2 28.7 s (4 runs). T3 48.7 s mean, median 37 s (27 injections). F1 in Run 1 (33 min, detection gap) and F6 in Run 2 (2 h 36 min, network outage) are excluded from the T3 figures.
+
+### Bugs found and fixed across runs
+
+1. B1 T1 extract depended on git history depth (Run 3, S1 and S3). Fixed in `bd60f72` (sha bound to the first path-filtered git_log entry). Verified Run 4, S1 A and B (T1, 0 tokens).
+2. B2 a stale incident after a revert demoted a playbook (Run 3). Addressed by `bd60f72` (recovered or already-fixed incidents dismissed without demotion). Not re-tested.
+3. B3 repeated incidents for one persistent fault (Run 3). Addressed by `dda3053` (one active incident per owner workload) and `bd60f72` (shadow suppression by fingerprint family). Partial: Run 6 F13 and F19 still opened new incidents after each dismissal.
+4. B4 "already fixed in git" dismissed a live fault (Run 4, F21). Fixed in `bd60f72` (dismissal only when the workload recovered). Verified Run 6 V1.
+5. B5 signature collision: the F4 playbook replayed on F21 (Run 4). Fixed in `dda3053` (collision routes to T3, no demotion). Verified Run 6 V1.
+6. B6 duplicate incidents for one pod (Run 4, ErrImagePull to ImagePullBackOff gave a new fingerprint). Addressed by the fingerprint-family suppression in `bd60f72`. Not re-tested.
+7. B8 F21 demoted the F4 playbook through the T1 extract failure (Run 5). Fixed in `014285a` (mismatch streak, demotion after 3 mismatches, collisions do not demote). Verified Run 6 V1 (`pb-1bf9` stays T1, mismatch_streak 1).
+8. F13 and F19 not detected (Run 5, restart loops on Running pods). Fixed in `014285a` (liveness restart detection). Detection verified Run 6 (LivenessProbeRestarts at the 3rd restart), but see B9.
+9. Non-idempotent revert (Run 3, minor). Fixed in `bd60f72`. Not re-tested.
+10. F4 not detected (Run 1, B3). Resolved from Run 2 on (F4 detected in 36 s); the fix is not recorded in this file.
+11. Shadow escalation without an outcome event and a repeated agent run (Run 1, B1). Not seen from Run 2 on (each later flow has one outcome); no fix commit recorded.
+
+### Bugs still open
+
+- **B9 (Run 6)** liveness restart incidents (LivenessProbeRestarts) are dismissed as "pod recovered within the debounce window" within about 5 s, on every restart (F13 and F19, 6 dismissals). The first escalation came only from a CrashLoopBackOff incident.
+- **B7** incident names reuse earlier base names (Runs 2, 4, 6). Minor.
+- **Run 1 B2** a 33-minute detection gap for F1 (not re-tested).
+- **Run 4 observation** the F23 T3 proposal reverted the image rather than escalating (the catalog's listed alternative).
+- **Run 4 B5 note** `learn` events in F21 incidents log from_state T1 while the playbook was already T2.
+
+### Cleanup state
+
+See the cleanup line after `stop_demo.sh` below.
+- Demo stopped with `./scripts/stop_demo.sh` (operator pid 51442 and dashboard pid 51443 stopped; no kopf or uvicorn processes remain). `active-faults.json` = `{}`, no fault injected. Pods Running: api 1/1, frontend, redis, worker (demo) and api-b 1/1 (demo-b). Run 6 incidents all deleted; pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place. No background jobs remain. Playbooks: `pb-1bf9` (F4) T1, `pb-e4db` (F5) T3.
