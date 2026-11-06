@@ -40,7 +40,7 @@ class Extract:
 
 
 def _runs() -> dict:
-    return {"t3_ok": 0, "t2_ok": 0, "t1_ok": 0, "fail": 0, "edited": 0, "rejected": 0, "t2_match": 0}
+    return {"t3_ok": 0, "t2_ok": 0, "t1_ok": 0, "fail": 0, "edited": 0, "rejected": 0, "t2_match": 0, "mismatch_streak": 0}
 
 
 @dataclass

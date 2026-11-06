@@ -24,11 +24,14 @@ INCIDENT_LABEL = f"{GROUP}/incident"
 POD_REASONS = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError"}
 # The loop repairs the demo workloads, not the platform it runs on (a restarting Argo CD pod is not an incident).
 IGNORED_NAMESPACES = frozenset({"argocd", "argo", "argo-events", "kube-system", "kube-public", "local-path-storage", "repair-system"})
+PROBE_RESTARTS = 3  # restarts of a still-Running container before it counts as a liveness-probe incident
+PROBE_REASON = "LivenessProbeRestarts"
 CLASS_HINT = {
     "CrashLoopBackOff": "CRASH_LOOP",
     "ImagePullBackOff": "IMAGE_PULL",
     "ErrImagePull": "IMAGE_PULL",
     "CreateContainerConfigError": "CONFIG_ERROR",
+    PROBE_REASON: "CRASH_LOOP",  # F13 / F19 are catalogued as CrashLoopBackOff faults; no new class
     "OOMKilled": "OOM_KILLED",
     "FailedScheduling": "UNSCHEDULABLE",
     "WorkflowFailed": "STAGE_FAILURE",
@@ -40,13 +43,26 @@ def is_ignored(body: dict) -> bool:
     return (body.get("metadata", {}).get("labels") or {}).get(IGNORE_LABEL) == "true"
 
 
-def container_failure(cs: dict) -> dict | None:
-    """Failure reason for one ``containerStatuses`` entry, or None if healthy."""
+def probe_failure_message(events: list[dict] | None) -> str:
+    """Message of the newest "Liveness probe failed" / "failed liveness probe, will be restarted" event, or ''."""
+    msgs = [e for e in events or [] if "liveness probe" in (e.get("message") or "").lower()]
+    msgs.sort(key=lambda e: str(e.get("lastTimestamp") or e.get("eventTime") or ""))
+    return (msgs[-1].get("message") or "") if msgs else ""
+
+
+def container_failure(cs: dict, probe_message: str = "") -> dict | None:
+    """Failure reason for one ``containerStatuses`` entry, or None if healthy.
+
+    A container that is ``Running`` but keeps restarting (liveness probe) is a failure from the third restart on,
+    before it ever reaches CrashLoopBackOff, when the last termination (or a probe event) shows why.
+    """
     waiting = (cs.get("state") or {}).get("waiting") or {}
     terminated = (cs.get("lastState") or {}).get("terminated") or {}
     reason = waiting.get("reason")
     if reason not in POD_REASONS:
         reason = "OOMKilled" if terminated.get("reason") == "OOMKilled" else None
+    if reason is None and cs.get("restartCount", 0) >= PROBE_RESTARTS and (terminated or probe_message):
+        reason = PROBE_REASON
     if reason is None:
         return None
     return {
@@ -58,8 +74,8 @@ def container_failure(cs: dict) -> dict | None:
     }
 
 
-def pod_failures(statuses: list[dict] | None) -> list[dict]:
-    return [f for f in (container_failure(cs) for cs in statuses or []) if f]
+def pod_failures(statuses: list[dict] | None, probe_message: str = "") -> list[dict]:
+    return [f for f in (container_failure(cs, probe_message) for cs in statuses or []) if f]
 
 
 def resolve_owner(body: dict, apps_api: Any = None) -> str:
@@ -86,11 +102,12 @@ def resolve_owner(body: dict, apps_api: Any = None) -> str:
     return f"{kind}/{name}"
 
 
-def pod_incident_specs(namespace: str, body: dict, apps_api: Any = None) -> list[dict]:
-    """One ``{source, fp, reason, classHint}`` per failing container of a pod."""
+def pod_incident_specs(namespace: str, body: dict, apps_api: Any = None, events: list[dict] | None = None) -> list[dict]:
+    """One ``{source, fp, reason, classHint}`` per failing container of a pod (``events``: the pod's recent events)."""
     if is_ignored(body) or namespace in IGNORED_NAMESPACES:
         return []
-    failures = pod_failures((body.get("status") or {}).get("containerStatuses"))
+    probe_msg = probe_failure_message(events)
+    failures = pod_failures((body.get("status") or {}).get("containerStatuses"), probe_msg)
     if not failures:
         return []
     owner = resolve_owner(body, apps_api)
@@ -105,6 +122,7 @@ def pod_incident_specs(namespace: str, body: dict, apps_api: Any = None) -> list
                 "node": (body.get("spec") or {}).get("nodeName"),
                 "reason": f["reason"],
                 "classHint": f["classHint"],
+                **({"message": probe_msg} if f["reason"] == PROBE_REASON and probe_msg else {}),
             },
             "fp": dedupe_fingerprint(namespace, owner, f["container"], f["reason"]),
         }
@@ -204,7 +222,15 @@ def _api(kind: str) -> Any:
 
 @kopf.on.field("pods", field="status.containerStatuses")
 def pod_failed(namespace, body, **_):
-    for spec in pod_incident_specs(namespace, body, _api("apps")):
+    events = None
+    if any(c.get("restartCount", 0) >= PROBE_RESTARTS for c in (body.get("status") or {}).get("containerStatuses") or []):
+        try:  # probe events explain restarts of a Running container; best effort
+            sel = f"involvedObject.name={body['metadata']['name']},involvedObject.kind=Pod"
+            events = [e.to_dict() for e in _api("core").list_namespaced_event(namespace, field_selector=sel).items]
+            events = [{"message": e.get("message"), "lastTimestamp": str(e.get("last_timestamp") or "")} for e in events]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("cannot list events of pod %s: %s", body["metadata"].get("name"), exc)
+    for spec in pod_incident_specs(namespace, body, _api("apps"), events):
         incidents.open_incident(_api("custom"), namespace, spec["source"], spec["fp"])
 
 

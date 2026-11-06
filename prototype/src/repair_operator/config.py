@@ -37,6 +37,7 @@ class Settings(BaseModel):
     promotion_threshold: int = 3
     promote_t2_after: int = 2  # verified T3 heals before a playbook becomes T2 (paper: 10)
     promote_t1_after: int = 2  # verified T2 heals (LLM edit == rule edit) before T1 (paper: 50)
+    demote_after_mismatches: int = 3  # consecutive in-attempt "does not apply" attempts before a T1/T2 playbook is demoted
 
     @model_validator(mode="after")
     def _default_model(self) -> Settings:
@@ -70,6 +71,7 @@ class Settings(BaseModel):
             "promotion_threshold": "REPAIR_PROMOTION_THRESHOLD",
             "promote_t2_after": "REPAIR_PROMOTE_T2_AFTER",
             "promote_t1_after": "REPAIR_PROMOTE_T1_AFTER",
+            "demote_after_mismatches": "REPAIR_DEMOTE_AFTER_MISMATCHES",
         }
         for field, var in mapping.items():
             if e.get(var):

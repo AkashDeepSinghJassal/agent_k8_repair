@@ -100,6 +100,23 @@ def analyze_hybrid(
 
     tried: list[tuple[str, str]] = []
     collision: list[str] = []  # set when the playbook's fix is already in the file but the workload still fails
+    mismatched: list[bool] = []  # one in-attempt mismatch is counted per attempt, however many tiers fail
+
+    def mismatch(event: str, tier: str, why: str) -> None:
+        """In-attempt "does not apply": record it; demote only after N consecutive ones (outcome failures demote at once)."""
+        fresh = store.get(pb.id) or pb
+        push_history(fresh, event, fresh.state, fresh.state, why[:300], inc)
+        if not mismatched:
+            mismatched.append(True)
+            fresh.runs["mismatch_streak"] = fresh.runs.get("mismatch_streak", 0) + 1
+        store.upsert(fresh)
+        if event == "collision":
+            crystallize.learn_event(inc, ns, "collision", fresh, why, tier=tier)
+        if fresh.state == tier and fresh.runs["mismatch_streak"] >= settings.demote_after_mismatches:
+            crystallize.demote(fresh, store, f"{fresh.runs['mismatch_streak']} consecutive mismatches, last: {tier} {why[:150]}", inc, ns)
+            again = store.get(pb.id)
+            again.runs["mismatch_streak"] = 0
+            store.upsert(again)
 
     def still_failing() -> bool:
         from ..evidence import workload_recovered
@@ -128,6 +145,10 @@ def analyze_hybrid(
                             res = await t1.run(pb, seed, box, tr)
                         else:
                             res = await t2.run(pb, seed, box, llm, tr, feedback or None)
+                        fresh = store.get(pb.id)
+                        if fresh is not None and fresh.state == tier and fresh.runs.get("mismatch_streak"):
+                            fresh.runs["mismatch_streak"] = 0
+                            store.upsert(fresh)
                         return _to_proposal(pb, res)
                     except AlreadyFixed:
                         if not still_failing():
@@ -137,10 +158,7 @@ def analyze_hybrid(
                         why = (f"playbook {pb.id} does not apply: its fix is already present but the "
                                "workload still fails (signature collision)")
                         tried.append((tier, why))
-                        fresh = store.get(pb.id) or pb
-                        push_history(fresh, "collision", fresh.state, fresh.state, tried[-1][1], inc)
-                        store.upsert(fresh)
-                        crystallize.learn_event(inc, ns, "collision", fresh, tried[-1][1], tier=tier)
+                        mismatch("collision", tier, why)
                         return None
                     except TierError as exc:
                         err = str(exc)
@@ -148,9 +166,7 @@ def analyze_hybrid(
                         log.exception("%s: %s crashed", inc, tier)
                         err = f"{type(exc).__name__}: {exc}"
                     tried.append((tier, err))
-                    fresh = store.get(pb.id)
-                    if fresh is not None and fresh.state == tier:
-                        crystallize.demote(fresh, store, f"{tier} failed: {err[:200]}", inc, ns)
+                    mismatch("mismatch", tier, f"{tier} failed: {err[:200]}")
                 return None
             finally:
                 try:

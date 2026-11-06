@@ -184,9 +184,32 @@ def test_router_falls_back_t1_t2_t3(settings, store):
     assert prop.tier_used == "T3" and len(t3calls) == 1
     r = routes()
     assert [(x["data"]["chosen_tier"], x["data"]["fallback_from"]) for x in r] == [("T1", None), ("T2", "T1"), ("T3", "T2")]
-    assert store.get(pb.id).state == "T3"  # demoted twice
+    after = store.get(pb.id)
+    assert after.state == "T1" and after.runs["fail"] == 0 and after.runs["mismatch_streak"] == 1  # one mismatch per attempt: no demotion
+    assert [h["event"] for h in after.history][-2:] == ["mismatch", "mismatch"]
     learn = [e["data"]["action"] for e in flow.read("ri-a", NS) if e["kind"] == "learn"]
-    assert learn == ["demoted", "demoted"]
+    assert "demoted" not in learn
+
+
+def test_router_demotes_after_consecutive_mismatches_and_success_resets(settings, store):
+    pb = captured()
+    pb.state = "T1"
+    store.upsert(pb)
+
+    def run(mcp):
+        return router.analyze_hybrid(bundle(), None, settings=settings, store=store, mcp_factory=mcp_factory(mcp),
+                                     llm=lambda prompt: t2.LlmReply("not json"), t3=t3_stub([]))
+
+    run(FakeMcp(diff_ok=False))
+    run(FakeMcp(diff_ok=False))
+    assert store.get(pb.id).state == "T1" and store.get(pb.id).runs["mismatch_streak"] == 2
+    assert run(FakeMcp()).tier_used == "T1"  # a successful replay resets the counter
+    assert store.get(pb.id).runs["mismatch_streak"] == 0
+    for _ in range(3):
+        run(FakeMcp(diff_ok=False))
+    after = store.get(pb.id)
+    assert after.state == "T2" and after.runs["fail"] == 1 and after.runs["mismatch_streak"] == 0
+    assert [e["data"]["action"] for e in flow.read("ri-a", NS) if e["kind"] == "learn"].count("demoted") == 1
 
 
 class FixedFileMcp(FakeMcp):
@@ -207,6 +230,7 @@ def test_router_collision_falls_to_t3_without_demotion(settings, store):
     after = store.get(pb.id)
     assert after.state == "T1" and after.runs["fail"] == 0
     assert [h["event"] for h in after.history][-1:] == ["collision"] and after.history[-1]["incident"] == "ri-a"
+    assert after.runs["mismatch_streak"] == 1
     r = routes()
     assert [(x["data"]["chosen_tier"], x["data"]["fallback_from"]) for x in r] == [("T1", None), ("T3", "T1")]
     assert "signature collision" in r[-1]["data"]["reason"] and f"playbook {pb.id} does not apply" in r[-1]["data"]["reason"]
@@ -231,7 +255,10 @@ def test_router_t2_fallback_succeeds_and_feedback_skips_t1(settings, store):
     store.upsert(pb)
     llm = lambda p: t2.LlmReply(json.dumps({"file": FILE, "edits": [EDIT]}))
     prop = router.analyze_hybrid(bundle(), None, settings=settings, store=store, mcp_factory=mcp_factory(FakeMcp(diff_ok=False)), llm=llm, t3=t3_stub([]))
-    assert prop.tier_used == "T2" and store.get(pb.id).state == "T2"
+    assert prop.tier_used == "T2" and store.get(pb.id).state == "T1"  # one T1 mismatch does not demote
+    cur = store.get(pb.id)
+    cur.state = "T2"
+    store.upsert(cur)
     # a retry with feedback: previous attempt ran on T2 and was rejected -> demoted to T3 -> agent
     calls = []
     prop = router.analyze_hybrid(bundle(), ["reviewer says no"], settings=settings, store=store, mcp_factory=mcp_factory(FakeMcp()), llm=llm, t3=t3_stub(calls))

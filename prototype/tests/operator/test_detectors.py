@@ -163,3 +163,32 @@ def test_one_feedback_entry_per_failure():
     vh.verify_step(inc, patch, None, api, 120, 3, datetime(2026, 11, 3, 10, 1, tzinfo=UTC))
     assert patch["status"]["phase"] == "Analyzing" and len(patch["status"]["reviewFeedback"]) == 1
     api.patch_namespaced_custom_object_status.assert_not_called()
+
+
+PROBE_EVENT = {"message": "Container api failed liveness probe, will be restarted", "lastTimestamp": "2026-01-01T00:00:00Z"}
+
+
+def running(restarts, terminated=None):
+    cs = {"name": "api", "restartCount": restarts, "state": {"running": {}}}
+    if terminated:
+        cs["lastState"] = {"terminated": terminated}
+    return cs
+
+
+def test_liveness_restarts_open_incident_with_probe_message():
+    body = pod([running(4, {"reason": "Error", "exitCode": 137})])
+    specs = d.pod_incident_specs("demo", body, apps_api(), [{"message": "Liveness probe failed: connection refused"}, PROBE_EVENT])
+    assert len(specs) == 1
+    src = specs[0]["source"]
+    assert (src["reason"], src["classHint"], src["owner"]) == (d.PROBE_REASON, "CRASH_LOOP", "Deployment/api")
+    assert "liveness probe" in src["message"]
+    assert specs[0]["fp"] == dedupe_fingerprint("demo", "Deployment/api", "api", d.PROBE_REASON)
+
+
+def test_liveness_restarts_by_event_alone_and_thresholds():
+    assert d.pod_incident_specs("demo", pod([running(3)]), apps_api(), [PROBE_EVENT])  # event instead of lastState
+    assert not d.pod_incident_specs("demo", pod([running(2, {"reason": "Error", "exitCode": 1})]), apps_api(), [PROBE_EVENT])
+    assert not d.pod_incident_specs("demo", pod([running(5)]), apps_api())  # no termination, no probe event
+    # a CrashLoopBackOff keeps its own reason and an OOMKilled container is still OOM
+    assert d.pod_incident_specs("demo", pod([waiting("CrashLoopBackOff")]), apps_api(), [PROBE_EVENT])[0]["source"]["reason"] == "CrashLoopBackOff"
+    assert d.pod_incident_specs("demo", pod([OOM]), apps_api(), [PROBE_EVENT])[0]["source"]["reason"] == "OOMKilled"
