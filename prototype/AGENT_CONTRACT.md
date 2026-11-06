@@ -42,7 +42,7 @@ Every tool: returns JSON-serialisable data or text; errors are returned as `{"er
 ### `k8s`
 | Tool | Args | Returns |
 | --- | --- | --- |
-| `k8s_list` | `kind`, `namespace`, `label_selector=""` | names + one-line status. kinds: pods, deployments, replicasets, services, endpoints, configmaps, networkpolicies, events, persistentvolumeclaims |
+| `k8s_list` | `kind`, `namespace`, `label_selector=""` | names + one-line status. kinds: pods, deployments, replicasets, services, endpoints, configmaps, networkpolicies, events, persistentvolumeclaims, persistentvolumes, storageclasses, nodes, serviceaccounts, resourcequotas, secrets (keys only). nodes, persistentvolumes and storageclasses are cluster-scoped (`namespace` is still checked against the allowlist) |
 | `k8s_get` | `kind`, `namespace`, `name` | the object as a dict without `managedFields`. `secrets`: key names only, never values |
 | `k8s_describe_pod` | `namespace`, `pod` | phase, conditions, per-container state / lastState / restartCount / image / resources, node, owner |
 | `k8s_logs` | `namespace`, `pod`, `container=""`, `previous=False`, `tail=200` | redacted lines |

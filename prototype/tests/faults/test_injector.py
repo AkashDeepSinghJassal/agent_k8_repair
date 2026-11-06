@@ -384,6 +384,21 @@ def test_f4_restarts_target_after_argo_sync(fixture_files, monkeypatch):
     assert kube.calls[-1][0] == ["-n", "demo", "rollout", "restart", "deploy/api"]
 
 
+def test_f4_revert_restarts_target_after_argo_sync(fixture_files, monkeypatch):
+    monkeypatch.setattr(injector, "_sleep", lambda _s: None)
+
+    class Kube(FakeKubectl):
+        def __call__(self, args, stdin=None):
+            super().__call__(args, stdin)
+            return "sha2 Synced" if "get" in args else ""
+
+    git, kube = FakeGit(fixture_files), Kube()
+    inject("F4", git=git, kubectl=Kube())
+    result = revert("F4", git=git, kubectl=kube)
+    assert result["synced"] is True
+    assert kube.calls[-1][0] == ["-n", "demo", "rollout", "restart", "deploy/api"]
+
+
 def test_f17_gives_up_waiting_for_sync_but_still_submits(fixture_files, monkeypatch):
     monkeypatch.setattr(injector, "_sleep", lambda _s: None)
     kube = FakeKubectl()

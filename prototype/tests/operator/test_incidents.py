@@ -177,3 +177,15 @@ def test_keep_polling_retries_only_while_phase_unchanged():
     with pytest.raises(kopf.TemporaryError):
         incidents.keep_polling({}, Phase.VERIFYING, 5)
     incidents.keep_polling({"status": {"phase": "Healed"}}, Phase.VERIFYING, 5)
+
+
+def test_open_incident_skips_name_whose_flow_file_exists(tmp_path, monkeypatch):
+    """A deleted CR must not let a new incident append to the old incident's flow trace."""
+    monkeypatch.setattr(incidents.flow, "path_for", lambda inc, ns: tmp_path / f"{ns}__{inc}.jsonl")
+    (tmp_path / "demo__ri-aaaaaaaaaa.jsonl").write_text("{}\n")
+    (tmp_path / "demo__ri-aaaaaaaaaa-2.jsonl").write_text("{}\n")
+    api = MagicMock()
+    api.get_namespaced_custom_object.side_effect = type("NF", (Exception,), {"status": 404})()
+    api.create_namespaced_custom_object.side_effect = lambda g, v, ns, pl, body: body
+    out = open_incident(api, "demo", {"kind": "Pod", "name": "p"}, FP)
+    assert out["metadata"]["name"] == "ri-aaaaaaaaaa-3"

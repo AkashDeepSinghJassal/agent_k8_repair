@@ -320,7 +320,14 @@ def revert(
         kube = kubectl or Kubectl()
         kube(["-n", entry["namespace"], "apply", "-f", "-"], stdin=new_text)
         result["actions"].append(["kubectl apply template", DEFAULT_WORKFLOW_TEMPLATE])
-    _run_post(entry, "post_revert_commands", kubectl, result)
+    kube = _run_post(entry, "post_revert_commands", kubectl, result)
+    target = entry.get("restart_target")
+    if entry["kind"] == "git" and target:  # pods stuck on the broken mount/env only recover after a restart
+        kube = kube or Kubectl()
+        app = entry.get("argo_app") or ARGO_APP_BY_NAMESPACE.get(entry["namespace"], "demo-app")
+        result["synced"] = _wait_synced(kube, app, result["commit"])
+        kube(["-n", entry["namespace"], "rollout", "restart", f"deploy/{target}"])
+        result["actions"].append(["kubectl rollout restart", f"deploy/{target}"])
     return result
 
 

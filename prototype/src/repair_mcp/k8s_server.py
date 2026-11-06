@@ -21,15 +21,27 @@ KINDS = {
         "core", "list_namespaced_persistent_volume_claim", "read_namespaced_persistent_volume_claim",
     ),
     "secrets": ("core", "list_namespaced_secret", "read_namespaced_secret"),
+    "serviceaccounts": ("core", "list_namespaced_service_account", "read_namespaced_service_account"),
+    "resourcequotas": ("core", "list_namespaced_resource_quota", "read_namespaced_resource_quota"),
+    # cluster-scoped (read-only; the namespace argument is only checked against the allowlist, not used)
+    "nodes": ("core", "list_node", "read_node"),
+    "persistentvolumes": ("core", "list_persistent_volume", "read_persistent_volume"),
+    "storageclasses": ("storage", "list_storage_class", "read_storage_class"),
 }
+CLUSTER_KINDS = {"nodes", "persistentvolumes", "storageclasses"}
 MAX_EVENTS = 50
 
 
 class Apis:
     """Lazy bundle of API clients; tests pass fakes."""
 
-    def __init__(self, core: Any = None, apps: Any = None, net: Any = None):
-        self._c, self._a, self._n = core, apps, net
+    def __init__(self, core: Any = None, apps: Any = None, net: Any = None, storage: Any = None):
+        self._c, self._a, self._n, self._s = core, apps, net, storage
+
+    @property
+    def storage(self) -> Any:
+        self._s = self._s or c.storage_api()
+        return self._s
 
     @property
     def core(self) -> Any:
@@ -82,7 +94,16 @@ def _summary(kind: str, o: dict) -> str:
         n = sum(len(s.get("addresses") or []) for s in subs)
         return f"{n} ready addresses"
     if kind == "persistentvolumeclaims":
-        return str(st.get("phase"))
+        return f"{st.get('phase')} storageClass={spec.get('storageClassName')}"
+    if kind == "persistentvolumes":
+        return f"{st.get('phase')} storageClass={spec.get('storageClassName')} claim={(spec.get('claimRef') or {}).get('name')}"
+    if kind == "storageclasses":
+        return f"provisioner={o.get('provisioner')}"
+    if kind == "nodes":
+        ready = [x.get("status") for x in st.get("conditions") or [] if x.get("type") == "Ready"]
+        return f"Ready={ready[0] if ready else None}"
+    if kind == "resourcequotas":
+        return f"hard={(st.get('hard') or {})} used={(st.get('used') or {})}"
     if kind == "events":
         return f"{o.get('type')} {o.get('reason')}: {(o.get('message') or '')[:120]}"
     if kind == "configmaps":
@@ -98,8 +119,9 @@ def k8s_list(kind: str, namespace: str, label_selector: str = "", *, apis: Apis 
     c.check_namespace(namespace)
     group, lister, _ = _kind(kind)
     kwargs = {"label_selector": label_selector} if label_selector else {}
-    items = _items(getattr(apis.get(group), lister)(namespace, **kwargs))
     key = kind.lower()
+    args = () if key in CLUSTER_KINDS else (namespace,)
+    items = _items(getattr(apis.get(group), lister)(*args, **kwargs))
     return [
         {"name": (i.get("metadata") or {}).get("name"), "status": c.redact(_summary(key, i))}
         for i in items[:200]
@@ -121,7 +143,8 @@ def k8s_get(kind: str, namespace: str, name: str, *, apis: Apis | None = None) -
     apis = apis or Apis()
     c.check_namespace(namespace)
     group, _, reader = _kind(kind)
-    obj = _strip(c.plain(getattr(apis.get(group), reader)(name, namespace)))
+    args = (name,) if kind.lower() in CLUSTER_KINDS else (name, namespace)
+    obj = _strip(c.plain(getattr(apis.get(group), reader)(*args)))
     if kind.lower() == "secrets":
         meta = obj.get("metadata") or {}
         return {
@@ -219,7 +242,7 @@ def k8s_events(namespace: str, name: str = "", *, apis: Apis | None = None) -> A
 def build_server(apis: Apis | None = None) -> MCPServer:
     srv = MCPServer("k8s")
 
-    @srv.tool(name="k8s_list", description="List Kubernetes objects in an allowed namespace with a one-line status each. kind: pods, deployments, replicasets, services, endpoints, configmaps, networkpolicies, events, persistentvolumeclaims.")
+    @srv.tool(name="k8s_list", description="List Kubernetes objects in an allowed namespace with a one-line status each. kind: pods, deployments, replicasets, services, endpoints, configmaps, networkpolicies, events, persistentvolumeclaims, persistentvolumes, storageclasses, nodes, serviceaccounts, resourcequotas, secrets (key names only).")
     def k8s_list_(kind: str, namespace: str, label_selector: str = "") -> Any:
         return k8s_list(kind, namespace, label_selector, apis=apis)
 

@@ -12,6 +12,7 @@ How the system works: manifests live in a git repository under deploy/ and workf
 Method:
 1. Investigate with the read-only tools (k8s_*, git_*, argo_*, workflow_status). Start from the seed: describe the pod, read logs (also previous=true for crashed containers), events, owner objects, related Services/ConfigMaps/endpoints.
 2. Find where the broken thing is defined in git (git_list, git_read). Use git_log / git_diff to see recent changes; the last known good value is often in history.
+   Find the most recent commit that touched the failing workload's resources or anything they depend on (Services, ConfigMaps, volumes, claims). Prefer restoring the value that commit changed over editing other resources to match it; the change that broke things is the root cause, not its dependents. Name that commit (short sha) in root_cause.
 3. Finish by calling propose_patch, or escalate if the problem cannot be fixed by editing a file in git (for example cluster capacity, a node problem, an external dependency, or nothing is wrong).
 
 Rules for propose_patch:

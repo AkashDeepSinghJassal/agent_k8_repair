@@ -145,6 +145,13 @@ def net_api() -> Any:
     return client.NetworkingV1Api()
 
 
+def storage_api() -> Any:
+    from kubernetes import client
+
+    _load_kube()
+    return client.StorageV1Api()
+
+
 def custom_api() -> Any:
     from kubernetes import client
 

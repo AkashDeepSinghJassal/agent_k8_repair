@@ -32,7 +32,8 @@ LlmFn = Callable[[str], LlmReply]
 def build_prompt(pb: Playbook, seed: dict, rep: Any, feedback: list[str] | None) -> str:
     parts = [
         ("You complete a known repair playbook for a Kubernetes GitOps incident. You have no tools. "
-         "Use only the tool outputs below; every new value you write must appear verbatim in them."),
+         "Use only the tool outputs below; every new value you write must appear verbatim in them. "
+         "If the outputs show a recent commit that changed a value, restore that value rather than editing dependent resources to match it."),
         (f"Incident: {seed.get('reason', '')} on {seed.get('kind', '')} {seed.get('name', '')} in namespace {seed.get('namespace', '')}; "
          f"container {seed.get('container', '')}. {seed.get('message', '')}"),
         "## Tool outputs",

@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from . import metrics
+from . import flow, metrics
 from .config import get_settings
 from .models import TERMINAL_PHASES, Phase
 
@@ -128,6 +128,23 @@ def _merge_signal(api: Any, namespace: str, existing: dict, source: dict) -> dic
     return existing
 
 
+def _cr_exists(api: Any, namespace: str, name: str) -> bool:
+    try:
+        api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, name)
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return False
+        raise
+    return True
+
+
+def _unused_flow_name(namespace: str, base: str) -> str:
+    for n in range(2, 100):
+        if not flow.path_for(f"{base}-{n}", namespace).exists():
+            return f"{base}-{n}"
+    raise RuntimeError(f"too many flow files for {base}")
+
+
 def open_incident(
     api: Any, namespace: str, source: dict, fp: str, signature: str | None = None
 ) -> dict | None:
@@ -140,6 +157,9 @@ def open_incident(
         log.info("fingerprint %s in cooldown, not opening an incident", fp[:10])
         return None
     name = incident_name(fp)
+    base = name
+    if flow.path_for(name, namespace).exists() and not _cr_exists(api, namespace, name):
+        name = _unused_flow_name(namespace, base)  # CR deleted but its flow trace remains: do not append to it
     if _shadow_escalated(api, namespace, source, name):
         log.info("%s: shadow-escalated incident exists for pod %s, not opening another", name, source.get("name"))
         return None
@@ -166,7 +186,9 @@ def open_incident(
     # The same failure came back after its incident was closed (Healed, Failed, ...). The name is derived from
     # the fingerprint, so it is taken: open a new incident ri-xxxx-2, -3, ... and keep the old one as history.
     for n in range(2, 100):
-        body["metadata"]["name"] = f"{name}-{n}"
+        body["metadata"]["name"] = f"{base}-{n}"
+        if flow.path_for(body["metadata"]["name"], namespace).exists():
+            continue
         try:
             created = api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, body)
         except Exception as exc:

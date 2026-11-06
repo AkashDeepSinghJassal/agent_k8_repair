@@ -19,7 +19,8 @@ spec:
       additionalPrinterColumns:
         - {name: Phase, type: string, jsonPath: .status.phase}
         - {name: Class, type: string, jsonPath: .status.classification.class}
-        - {name: Tier, type: integer, jsonPath: .status.proposal.tier}
+        - {name: Level, type: integer, jsonPath: .status.proposal.tier}
+        - {name: Used, type: string, jsonPath: .status.agent.tierUsed}
         - {name: PR, type: string, jsonPath: .status.pullRequest}
         - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
       schema:

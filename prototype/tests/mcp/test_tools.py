@@ -47,7 +47,17 @@ def test_namespace_allowlist(apis):
 
 
 def test_unknown_kind(apis):
-    assert "error" in k8s_server.k8s_list("nodes", "demo", apis=apis)
+    assert "error" in k8s_server.k8s_list("bogus", "demo", apis=apis)
+
+
+def test_storageclasses_cluster_scoped(apis):
+    apis.core.list_node = lambda **kw: {"items": [{"metadata": {"name": "n1"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}]}
+    apis._s = NS(list_storage_class=lambda **kw: {"items": [{"metadata": {"name": "standard"}, "provisioner": "rancher.io/local-path"}]},
+                 read_storage_class=lambda name: {"metadata": {"name": name}, "provisioner": "p"})
+    assert k8s_server.k8s_list("storageclasses", "demo", apis=apis) == [{"name": "standard", "status": "provisioner=rancher.io/local-path"}]
+    assert k8s_server.k8s_get("storageclasses", "demo", "standard", apis=apis)["provisioner"] == "p"
+    assert k8s_server.k8s_list("nodes", "demo", apis=apis)[0]["status"] == "Ready=True"
+    assert "error" in k8s_server.k8s_get("storageclasses", "kube-system", "standard", apis=apis)
 
 
 def test_secret_values_never_returned(apis):
