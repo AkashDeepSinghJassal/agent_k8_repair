@@ -269,13 +269,52 @@ Overall V3 FAIL: both proposals are correct and escalate within the window, but 
 - No RepairIncidents from this run remain. Pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place.
 - Playbooks: `pb-1bf9` (F4) T1, fail 0, mismatch_streak 0. `pb-e4db` (F5) T3, fail 1.
 
+## Run 7: B9 verification (issue #30)
+
+Demo started with `start_demo.sh` and `REPAIR_SHADOW_MODE=1 REPAIR_ANALYZER_MODE=hybrid REPAIR_AGENT_PROVIDER=claude-cli` on `prototype-v4` at `9e884cc` (the B9 commit; LLM fallback groq, debounce 5 s). Pre-run: `active-faults.json` = `{}`, Argo `demo-app` and `demo-app-b` Synced/Healthy, api 1/1 (demo) and api-b 1/1 (demo-b), no incidents besides the three Healed ones. One fault at a time: F19, then F13. Each: revert, wait for Argo Synced/Healthy and a new pod at 0 restarts, delete the incidents.
+
+### B9 expectations: FAIL on both faults
+
+| Expectation | F19 (api, path /livez) | F13 (api-b, port 8001) |
+| --- | --- | --- |
+| LivenessProbeRestarts incident not dismissed by the debounce | FAIL: `ri-c8280554ce-4`, `-5`, `-6` (restarts 3, 4, 5) all Dismissed; `-4` outcome "pod recovered within the debounce window", closed 5 s after detection | FAIL: `ri-cd7565151d-4`, `-5`, `-6` (restarts 3, 4, 5) all Dismissed; `-4` outcome "pod recovered within the debounce window", closed 5 s after detection |
+| Incident reaches a proposal | PASS, but via the CrashLoopBackOff incident `ri-ef9d6f8d30-15`, not the LivenessProbeRestarts one | PASS, via `ri-047334f3e2-2` (CrashLoopBackOff), not the LivenessProbeRestarts one |
+| Proposal fixes the probe per `correct_fix` | PASS: `deploy/demo/api.yaml`, livenessProbe path /livez -> /healthz (root cause commit f5e3d54) | PASS: `deploy/demo-b/api-b.yaml`, livenessProbe port 8001 -> 8000 (root cause commit c23429c) |
+| Ends Escalated (shadow_mode) | PASS | PASS |
+| No duplicate incidents | FAIL: 4 incidents for one fault (3 dismissed, then 1 escalated) | FAIL: 4 incidents for one fault (3 dismissed, then 1 escalated) |
+
+### Timeline and cost
+
+| Measure | F19 | F13 |
+| --- | --- | --- |
+| Injection (commit) | 13:37:21Z (`f5e3d54`) | 13:46:03Z (`c23429c`) |
+| 3rd restart (restartCount 3) | 13:40:38Z | 13:49:46Z |
+| First LivenessProbeRestarts incident | `-4` detected 13:40:38Z, Dismissed 13:40:43Z | `-4` detected 13:49:47Z, Dismissed 13:49:52Z |
+| Escalated incident detected | 13:43:38Z, 3 min 1 s after the 3rd restart | 13:53:17Z, 3 min 32 s after the 3rd restart |
+| Proposal | 13:44:10.3Z, 3 min 32 s after the 3rd restart, 31.7 s after the escalated detection | 13:53:49.1Z, 4 min 3 s after the 3rd restart, 31.2 s after the escalated detection |
+| Tier, tokens, cost | T3, 37,730 in / 1,356 out, $0.049 (claude-cli sonnet, 7 steps) | T3, 27,387 in / 1,373 out, $0.047 (claude-cli sonnet, 6 steps) |
+| Outcome | Escalated (shadow_mode) | Escalated (shadow_mode) |
+| Revert | `2cb0826` at 13:45:24Z; Argo Synced/Healthy 13:45:48Z; new pod 1/1 Running, 0 restarts | `a2b6b4f` at 14:19:40Z; Argo Synced/Healthy 14:22:13Z; new pod 1/1 Running, 0 restarts |
+| Incidents deleted | `ri-c8280554ce-4`, `-5`, `-6`, `ri-ef9d6f8d30-15` | `ri-cd7565151d-4`, `-5`, `-6`, `ri-047334f3e2-2` |
+
+### Analysis
+
+B9 is still open. Commit `9e884cc` keeps an incident open only when the container's restartCount rose between detection and the debounce check (`restarts_increased` in `evidence.py`). With the 5 s debounce, that check runs before the next kubelet kill. The restarts come about 60 s apart (F19: restart 3 at 13:40:38Z, restart 4 at 13:41:38Z, restart 5 at 13:42:38Z), so the count is unchanged at the check, the pod is Ready between kills, and `recovered()` dismisses the incident. The escalation then came only from the CrashLoopBackOff incident, as in Run 6. The operator default debounce (60 s) is close to the restart interval; it was not tested here. Both proposals match `correct_fix`. No playbook was used: both escalations routed to T3 ("No playbook for this failure signature yet"). The F19 escalation reused the F4 base name `ri-ef9d6f8d30` (`-15`, B7).
+
+Run note: the F13 revert came 33 min 37 s after injection (13:46:03Z to 14:19:40Z), past the 12 min limit. No polling ran in that gap and the cause is not recorded. The F13 escalation was complete at 13:53:49Z, so the verdict is not affected, but the pod crash-looped about 26 min longer than planned.
+
+### Cleanup state (end of Run 7, after `stop_demo.sh`)
+
+- No fault injected: `active-faults.json` = `{}`. Operator and dashboard stopped; no kopf or uvicorn process remains. Argo `demo-app` and `demo-app-b` Synced/Healthy. api 1/1 (demo), api-b 1/1 (demo-b).
+- Run 7 incidents deleted. Pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place. No playbook was used in this run.
+
 ## Summary
 
-Covers Runs 1 to 6 in this file. Numbers are taken from the rows and sections above. "Latest run" means the last injection of a fault, used where a fault was re-run after a fix or re-test.
+Covers Runs 1 to 7 in this file. Counts, averages, tier usage and detection-to-proposal figures below are still computed from Runs 1 to 6 and were not recomputed for Run 7; Run 7 is reported in its own section and in the F13 and F19 lines. Numbers are taken from the rows and sections above. "Latest run" means the last injection of a fault, used where a fault was re-run after a fix or re-test.
 
 - **Faults attempted:** 39 injections across 24 distinct faults (F1, F4, F5, F6, F8 to F27). Not attempted: F2 and F3 (in the planned order header, never run). F7 skipped (taints the node).
-- **Detected:** 37 of 39 injections. Not detected: F4 in Run 1 (no restart target in the catalog, B3) and F13 in Run 5 (kubelet restart delay of about 8 min). Latest run per fault: 24 of 24 detected. F13 and F19 incidents were opened and then dismissed by the debounce check before a later incident escalated (Run 6, B9).
-- **Fix outcome (latest run per fault):** correct 20, partial 4 (F8, F18, F23, F26), symptom or wrong 0, escalated without a proposal 0. Faults re-run with a later latest run: F4 (Run 6 V2; earlier Runs 2 to 5), F5 (Run 3 S2), F10, F11, F12 (Run 3 S4; Run 2 had symptom-only fixes), F13 (Run 6; Run 5 not detected), F15 (Run 3 S5; Run 2 escalated), F21 (Run 6 V1; Run 4 false dismissal, Run 5 correct).
+- **Detected:** 37 of 39 injections. Not detected: F4 in Run 1 (no restart target in the catalog, B3) and F13 in Run 5 (kubelet restart delay of about 8 min). Latest run per fault: 24 of 24 detected. F13 and F19 incidents were opened and then dismissed by the debounce check before a later incident escalated (Runs 6 and 7, B9). Run 7 repeated this for both faults: 3 LivenessProbeRestarts incidents dismissed each, then the escalation from a CrashLoopBackOff incident, 3 min 1 s (F19) and 3 min 32 s (F13) after the 3rd restart.
+- **Fix outcome (latest run per fault):** correct 20, partial 4 (F8, F18, F23, F26), symptom or wrong 0, escalated without a proposal 0. Faults re-run with a later latest run: F4 (Run 6 V2; earlier Runs 2 to 5), F5 (Run 3 S2), F10, F11, F12 (Run 3 S4; Run 2 had symptom-only fixes), F13 (Run 7; Run 5 not detected), F15 (Run 3 S5; Run 2 escalated), F19 (Run 7; Run 6 V3), F21 (Run 6 V1; Run 4 false dismissal, Run 5 correct). F13 and F19 proposals were correct in both Run 6 and Run 7.
 - **Tier usage (final tier per injection, 37 detected):** T1 3, T2 5, T3 29.
 - **Average cost:** T3 $0.0555 per agent run (32 runs with a reported cost; F6 in Run 2 excluded, cost not reported). T2 $0.036 per narrow LLM call (5 calls with a reported cost). T1 $0 (0 tokens, no LLM).
 - **Detection to proposal:** T1 20.6 s (3 runs). T2 28.7 s (4 runs). T3 48.7 s mean, median 37 s (27 injections). F1 in Run 1 (33 min, detection gap) and F6 in Run 2 (2 h 36 min, network outage) are excluded from the T3 figures.
@@ -289,14 +328,14 @@ Covers Runs 1 to 6 in this file. Numbers are taken from the rows and sections ab
 5. B5 signature collision: the F4 playbook replayed on F21 (Run 4). Fixed in `dda3053` (collision routes to T3, no demotion). Verified Run 6 V1.
 6. B6 duplicate incidents for one pod (Run 4, ErrImagePull to ImagePullBackOff gave a new fingerprint). Addressed by the fingerprint-family suppression in `bd60f72`. Not re-tested.
 7. B8 F21 demoted the F4 playbook through the T1 extract failure (Run 5). Fixed in `014285a` (mismatch streak, demotion after 3 mismatches, collisions do not demote). Verified Run 6 V1 (`pb-1bf9` stays T1, mismatch_streak 1).
-8. F13 and F19 not detected (Run 5, restart loops on Running pods). Fixed in `014285a` (liveness restart detection). Detection verified Run 6 (LivenessProbeRestarts at the 3rd restart), but see B9.
+8. F13 and F19 not detected (Run 5, restart loops on Running pods). Fixed in `014285a` (liveness restart detection). Detection verified Run 6 and Run 7 (LivenessProbeRestarts at the 3rd restart), but the escalation still came only from CrashLoopBackOff; see B9.
 9. Non-idempotent revert (Run 3, minor). Fixed in `bd60f72`. Not re-tested.
 10. F4 not detected (Run 1, B3). Resolved from Run 2 on (F4 detected in 36 s); the fix is not recorded in this file.
 11. Shadow escalation without an outcome event and a repeated agent run (Run 1, B1). Not seen from Run 2 on (each later flow has one outcome); no fix commit recorded.
 
 ### Bugs still open
 
-- **B9 (Run 6)** liveness restart incidents (LivenessProbeRestarts) are dismissed as "pod recovered within the debounce window" within about 5 s, on every restart (F13 and F19, 6 dismissals). The first escalation came only from a CrashLoopBackOff incident.
+- **B9 (Runs 6 and 7, still open after `9e884cc`)** liveness restart incidents (LivenessProbeRestarts) are dismissed as "pod recovered within the debounce window" about 5 s after detection, on every restart (F13 and F19, 6 dismissals in Run 6, 6 more in Run 7). The first escalation came only from a CrashLoopBackOff incident. The `9e884cc` check (restartCount rising before the debounce check) never fires with a 5 s debounce, because restarts come about 60 s apart. Fix needed: hold a restart-loop incident past one restart interval, or treat LivenessProbeRestarts as still failing unless the pod stays Ready past the next expected restart. Re-test with the operator default 60 s debounce as well.
 - **B7** incident names reuse earlier base names (Runs 2, 4, 6). Minor.
 - **Run 1 B2** a 33-minute detection gap for F1 (not re-tested).
 - **Run 4 observation** the F23 T3 proposal reverted the image rather than escalating (the catalog's listed alternative).
@@ -306,3 +345,4 @@ Covers Runs 1 to 6 in this file. Numbers are taken from the rows and sections ab
 
 See the cleanup line after `stop_demo.sh` below.
 - Demo stopped with `./scripts/stop_demo.sh` (operator pid 51442 and dashboard pid 51443 stopped; no kopf or uvicorn processes remain). `active-faults.json` = `{}`, no fault injected. Pods Running: api 1/1, frontend, redis, worker (demo) and api-b 1/1 (demo-b). Run 6 incidents all deleted; pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place. No background jobs remain. Playbooks: `pb-1bf9` (F4) T1, `pb-e4db` (F5) T3.
+- After Run 7: same state, with no fault injected, pods Running and no operator or uvicorn process (see the Run 7 cleanup state above).
