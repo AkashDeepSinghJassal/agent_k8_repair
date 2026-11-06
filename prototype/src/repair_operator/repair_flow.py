@@ -17,7 +17,7 @@ from . import evidence, flow, git_writer, guardrails, incidents
 from .analyzer import InvalidOutput, LlmUnavailable
 from .analyzer import analyze as default_analyze
 from .config import Settings, get_settings
-from .models import Phase, Proposal
+from .models import AlreadyFixed, Phase, Proposal
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +167,14 @@ def _escalate(
             log.exception("could not label/comment on PR #%s", number)
 
 
+def _dismiss(patch: dict, reason: str, now: datetime | None, body: dict) -> None:
+    """Stale incident (the failure is gone): close it Dismissed and keep the learner from touching any playbook."""
+    incidents.set_phase(
+        patch, Phase.DISMISSED, now, incident=body, outcome={"result": "dismissed", "reason": reason},
+        hybridLearning={"action": "skipped", "reason": reason},
+    )
+
+
 def _pr_number(url: str | None) -> int | None:
     tail = (url or "").rstrip("/").rsplit("/", 1)[-1]
     return int(tail) if tail.isdigit() else None
@@ -184,8 +192,9 @@ def analyze_step(
     store: Any = None,
     now: datetime | None = None,
     collect_fn: Callable[..., dict] | None = None,
+    recheck_fn: Callable[[dict], str | None] | None = None,
 ) -> None:
-    """Analyzing -> Proposed | Escalated. Retries internally on invalid LLM output or guardrail rejection.
+    """Analyzing -> Proposed | Escalated | Dismissed (workload already recovered, or the file already fixed). Retries internally on invalid LLM output or guardrail rejection.
 
     A re-analysis (attempt > 1) first collects a fresh evidence bundle for that attempt.
     """
@@ -195,6 +204,9 @@ def analyze_step(
     attempts = status.get("attempts") or 1
     feedback = list(status.get("reviewFeedback") or [])
     last_reason: str | None = None
+    if attempts == 1 and recheck_fn is not None and (why := recheck_fn(body)):
+        _dismiss(patch, why, now, body)
+        return
     if attempts <= settings.max_attempts:
         refresh_evidence(body, attempts, settings, patch, collect_fn=collect_fn)
 
@@ -214,6 +226,9 @@ def analyze_step(
             if settings.analyzer_mode in ("agent", "hybrid"):
                 bundle = {**bundle, "attempt": attempts}  # names the saved agent trace
             proposal = analyze_fn(bundle, feedback or None, store=store) if store else analyze_fn(bundle, feedback or None)
+        except AlreadyFixed:
+            _dismiss(patch, "already fixed in git", now, body)
+            return
         except LlmUnavailable as exc:
             log.error("%s: LLM unavailable: %s", name, exc.reason)
             _escalate(patch, f"llm_unavailable: {exc.reason[:160]}", now, None, status, incident=body, attempts=attempts)

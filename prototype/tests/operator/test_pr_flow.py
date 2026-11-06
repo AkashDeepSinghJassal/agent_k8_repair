@@ -454,3 +454,43 @@ def test_stale_review_poll_does_not_regress_phase(tmp_path):
     env.body["status"]["phase"] = "Verifying"  # the Argo-sync handler already moved on
     env.review()
     assert env.status["phase"] == "Verifying"
+
+
+def test_already_fixed_dismisses_without_escalating(tmp_path):
+    from repair_operator.models import AlreadyFixed
+
+    def analyze(*_a, **_k):
+        raise AlreadyFixed("fixed")
+
+    env = Env(tmp_path, analyze)
+    env.analyze()
+    assert env.status["phase"] == "Dismissed"
+    assert env.status["outcome"]["reason"] == "already fixed in git"
+    assert env.status["hybridLearning"]["action"] == "skipped"
+
+
+def test_recheck_dismisses_recovered_workload_before_analysis(tmp_path):
+    def analyze(*_a, **_k):
+        raise AssertionError("must not run")
+
+    env = Env(tmp_path, analyze)
+    env.analyze(recheck_fn=lambda body: "recovered before analysis")
+    assert env.status["phase"] == "Dismissed"
+    assert env.status["outcome"]["reason"] == "recovered before analysis"
+
+
+def test_workload_recovered_reads_deployment_status():
+    from types import SimpleNamespace
+
+    from repair_operator import evidence
+
+    inc = {"metadata": {"name": "ri-x", "namespace": "demo"}, "spec": {"source": {"owner": "Deployment/api"}}}
+
+    def api(ready, gen=2):
+        d = {"metadata": {"generation": 2}, "spec": {"replicas": 2},
+             "status": {"observedGeneration": gen, "replicas": 2, "updatedReplicas": 2, "readyReplicas": ready, "availableReplicas": ready}}
+        return SimpleNamespace(read_namespaced_deployment=lambda n, ns: d)
+
+    assert evidence.workload_recovered(inc, api(2)) == "recovered before analysis"
+    assert evidence.workload_recovered(inc, api(1)) is None
+    assert evidence.workload_recovered(inc, api(2, gen=1)) is None

@@ -14,7 +14,7 @@ from typing import Any
 
 from .. import crystallize
 from ..playbooks import Playbook
-from . import TierError, TierResult, Tracer, read_files, replay
+from . import TierError, TierResult, Tracer, check_already_fixed, read_files, replay
 
 MAX_OUTPUT = 8000
 LLM_TIMEOUT = 240
@@ -172,6 +172,7 @@ async def run(playbook: Playbook, seed: dict, mcp: Any, llm: LlmFn | None = None
     obj = parse_reply(reply.text)
     file, edits = obj["file"], [{"find": e["find"], "replace": e["replace"]} for e in obj["edits"]]
     text = rep.file_text(file)
+    check_already_fixed(text, edits, file)
     if text is not None:
         for e in edits:
             if text.count(e["find"]) != 1:

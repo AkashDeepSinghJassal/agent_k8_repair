@@ -313,7 +313,11 @@ def revert(
 
     git = git or _default_git()
     path = entry["target_file"]
-    new_text = apply_edits(git.get_file(path), inverse_edits(edits_for(entry)))
+    current = git.get_file(path)
+    if not is_injected(entry, current):  # already reverted (or never injected): nothing to do
+        result["already_reverted"] = True
+        return result
+    new_text = apply_edits(current, inverse_edits(edits_for(entry)))
     result["commit"] = git.commit_file(path, new_text, _commit_message(entry, revert=True))
     result["actions"].append(["commit", path])
     if entry["kind"] == "workflow":

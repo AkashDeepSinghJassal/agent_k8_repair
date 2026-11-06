@@ -133,7 +133,7 @@ def on_analyzing(body, patch, **_):
     """Analyzing -> Proposed | Escalated (analyzer + guardrails, retries internally)."""
     if not incidents.in_phase(body, Phase.ANALYZING):
         return  # Analyzing -> Escalated fires this handler again: never re-run the agent
-    analyze_step(body, patch)
+    analyze_step(body, patch, recheck_fn=evidence.workload_recovered)
 
 
 @kopf.on.field(GROUP, VERSION, PLURAL, field="status.phase", value=Phase.PROPOSED.value)

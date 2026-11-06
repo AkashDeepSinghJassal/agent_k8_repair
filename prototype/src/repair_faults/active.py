@@ -10,6 +10,14 @@ import logging
 import time
 from pathlib import Path
 
+MAX_AGE_S = 1800
+
+
+def _prune(data: dict) -> dict:
+    """Drop entries older than 30 minutes (a fault whose revert never ran)."""
+    now = time.time()
+    return {ns: e for ns, e in data.items() if isinstance(e, dict) and now - float(e.get("ts", 0) or 0) < MAX_AGE_S}
+
 
 def record_active_fault(namespace: str, fault_id: str | None) -> None:
     """Set (``fault_id``) or clear (None) the active fault for ``namespace``. Never raises."""
@@ -21,6 +29,7 @@ def record_active_fault(namespace: str, fault_id: str | None) -> None:
             data = json.loads(path.read_text())
         except (OSError, ValueError):
             data = {}
+        data = _prune(data)
         if fault_id:
             data[namespace] = {"fault": fault_id, "ts": time.time()}
         else:

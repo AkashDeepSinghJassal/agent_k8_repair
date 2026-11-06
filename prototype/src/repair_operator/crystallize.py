@@ -22,6 +22,8 @@ _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 _KV = re.compile(r"^(\s*(?:-\s+)?)([\w./\-]+)(\s*[:=]\s*)(.*?)(\s*)$")
 _SEED_ORDER = ("file", "pod", "owner", "container", "deployment", "repo", "namespace", "app")
 NON_REPLAY_TOOLS = frozenset({"propose_patch", "escalate"})
+_FIRST_SHA = {"type": "regex", "pattern": r'"sha":\s*"([0-9a-f]{7,40})"', "group": 1}
+_SYMPTOM_TOOLS = frozenset({"k8s_logs", "k8s_describe_pod"})
 
 
 # --- variables and templates --------------------------------------------------------
@@ -148,14 +150,16 @@ def _context_rule(text: str, value: str) -> dict | None:
 
 
 def _sha_entry_rule(text: str, value: str) -> dict | None:
-    """Rule for a commit sha in a git_log listing (concatenated JSON objects, not one document): anchor on its message."""
-    if not _SHA.match(value) or (i := text.find(value)) == -1:
+    """Rule for a commit sha in a git_log listing (concatenated JSON objects, not one document): its position in the list.
+
+    Never anchored on the commit message: the next incident's log has other commits.
+    """
+    shas = re.findall(r'"sha":\s*"([0-9a-f]{7,40})"', text)
+    if not _SHA.match(value) or value not in shas:
         return None
-    end = text.find("}", i)
-    m = re.search(r'"message":\s*"((?:[^"\\]|\\.)*)"', text[i : end if end != -1 else len(text)])
-    if not m:
-        return None
-    pattern = r'([0-9a-f]{7,40})"\s*,\s*"date":\s*"[^"]*"\s*,\s*"message":\s*"' + re.escape(m.group(1))
+    n = shas.index(value)
+    entry = r'"sha":\s*"[0-9a-f]{7,40}"'
+    pattern = (r'(?:' + entry + r'[\s\S]*?){' + str(n) + r'}' if n else "") + r'"sha":\s*"([0-9a-f]{7,40})"'
     rule = {"type": "regex", "pattern": pattern, "group": 1}
     return rule if apply_rule(rule, text) == value else None
 
@@ -302,26 +306,46 @@ def capture(trace: list[dict], proposal: Any, seed: dict, *, signature: str = ""
     calls = kept_calls(trace)
     if not calls or not edits or not file:
         return None
-    steps: list[Step] = []
-    extracts: list[Extract] = []
+    file_t = "${file}" if variables.get("file") == file else escape_literal(file)
+    extracts: list[Extract] = []  # from_step is an index into ``calls`` until the final remap
+    blocked: list[str] = []
+    edits_t = [_edit_template(e, calls, variables, extracts, blocked) for e in edits]
+    # minimal evidence path: the symptom (logs/describe), the file and its history, plus whatever feeds an extract
+    keep = {i for i, c in enumerate(calls) if c["tool"] in _SYMPTOM_TOOLS or (
+        c["tool"] in ("git_read", "git_log") and (c.get("args") or {}).get("path") == file)}
+    keep |= {e.from_step for e in extracts}
     # args that are commit shas coming from an earlier result are bound dynamically (the sha changes per incident)
-    for i, c in enumerate(calls):
-        args = _parameterize_args(c.get("args") or {}, variables)
+    all_args: dict[int, dict] = {}
+    for i in sorted(keep, reverse=True):
+        args = all_args[i] = _parameterize_args(calls[i].get("args") or {}, variables)
         for k, v in list(args.items()):
             if isinstance(v, str) and _SHA.match(v):
                 for j in range(i):
                     rule = derive_rule(calls[j]["tool"], _text(calls[j]), v)
+                    if rule and calls[j]["tool"] == "git_log" and file:
+                        # git_log filters by path ({sha, date, message} only): the introducing commit of a fresh incident is
+                        # assumed to be the NEWEST commit touching the edited file, whatever index it had in the captured run
+                        rule = {"type": "json_path", "path": "[0].sha"} if _text(calls[j]).lstrip().startswith("[") else dict(_FIRST_SHA)
+                        all_args[j] = {**(all_args.get(j) or _parameterize_args(calls[j].get("args") or {}, variables)),
+                                       "path": file_t}
                     if rule:
                         same = next((e for e in extracts if e.from_step == j and e.rule == rule), None)
                         var = same.var if same else f"sha_{j}" if not any(e.var == f"sha_{j}" for e in extracts) else f"sha_{j}_{len(extracts)}"
                         if same is None:
                             extracts.append(Extract(var, j, rule))
                         args[k] = "${" + var + "}"
+                        keep.add(j)
                         break
-        steps.append(Step(_server(c["tool"]), c["tool"], args))
-    blocked: list[str] = []
-    edits_t = [_edit_template(e, calls, variables, extracts, blocked) for e in edits]
-    file_t = "${file}" if variables.get("file") == file else escape_literal(file)
+                else:
+                    args[k] = v
+    for i in keep:
+        all_args.setdefault(i, _parameterize_args(calls[i].get("args") or {}, variables))
+    order = sorted(keep)
+    pos = {i: n for n, i in enumerate(order)}
+    for e in extracts:
+        e.from_step = pos[e.from_step]
+    steps = [Step(_server(calls[i]["tool"]), calls[i]["tool"], all_args[i]) for i in order]
+    calls = [calls[i] for i in order]
     seq = [c["tool"] for c in calls]
     sig = signature or seed.get("signature", "")
     pb = Playbook(

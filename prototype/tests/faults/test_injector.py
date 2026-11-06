@@ -192,6 +192,28 @@ def test_inject_f1_commits_broken_api_manifest(fixture_files):
     assert "F1" not in message and "fault" not in message.lower()
 
 
+def test_revert_is_idempotent(fixture_files):
+    git = FakeGit(fixture_files)
+    inject("F1", git=git)
+    revert("F1", git=git)
+    n = len(git.commits)
+    assert revert("F1", git=git)["already_reverted"] is True
+    assert len(git.commits) == n
+
+
+def test_active_faults_prunes_stale_entries(tmp_path, monkeypatch):
+    import json
+    import time
+
+    from repair_faults.active import record_active_fault
+    from repair_operator.config import Settings
+
+    monkeypatch.setattr("repair_operator.config.get_settings", lambda: Settings(state_dir=tmp_path))
+    (tmp_path / "active-faults.json").write_text(json.dumps({"old": {"fault": "F1", "ts": time.time() - 4000}}))
+    record_active_fault("demo", "F4")
+    assert list(json.loads((tmp_path / "active-faults.json").read_text())) == ["demo"]
+
+
 def test_revert_f1_restores_fixture_bytes(fixture_files):
     git = FakeGit(fixture_files)
     inject("F1", git=git)

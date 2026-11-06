@@ -104,19 +104,22 @@ def test_open_incident_skipped_in_cooldown():
     api.create_namespaced_custom_object.assert_not_called()
 
 
-def test_open_incident_skipped_while_shadow_escalated_for_same_pod():
-    def item(name, pod, shadow):
-        return {"metadata": {"name": name}, "spec": {"source": {"name": pod}},
+def test_open_incident_skipped_while_shadow_escalated_for_fingerprint():
+    def item(name, shadow):
+        return {"metadata": {"name": name}, "spec": {"source": {"name": "p"}},
                 "status": {"phase": "Escalated", **({"shadow": True} if shadow else {})}}
 
     api = MagicMock()
-    api.list_namespaced_custom_object.return_value = {"items": [item("ri-aaaaaaaaaa-2", "p", True)]}
+    api.list_namespaced_custom_object.return_value = {"items": [item("ri-aaaaaaaaaa-2", True)]}
+    # same fingerprint, whatever the pod name (a Deployment creates new pods)
     assert open_incident(api, "demo", {"kind": "Pod", "name": "p"}, FP) is None
+    assert open_incident(api, "demo", {"kind": "Pod", "name": "other"}, FP) is None
     api.create_namespaced_custom_object.assert_not_called()
-    # a new pod (fault re-injected) or a non-shadow Escalated incident does not suppress
+    # deleting the CR lifts it; a non-shadow Escalated incident does not suppress
     api.create_namespaced_custom_object.return_value = {"ok": 1}
+    api.list_namespaced_custom_object.return_value = {"items": []}
     assert open_incident(api, "demo", {"kind": "Pod", "name": "other"}, FP) == {"ok": 1}
-    api.list_namespaced_custom_object.return_value = {"items": [item("ri-aaaaaaaaaa", "p", False)]}
+    api.list_namespaced_custom_object.return_value = {"items": [item("ri-aaaaaaaaaa", False)]}
     assert open_incident(api, "demo", {"kind": "Pod", "name": "p"}, FP) == {"ok": 1}
 
 

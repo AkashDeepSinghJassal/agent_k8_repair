@@ -10,11 +10,20 @@ from typing import Any
 
 from .. import flow
 from ..crystallize import apply_rule, seed_vars, substitute
+from ..models import AlreadyFixed
 from ..playbooks import Playbook
 
 
 class TierError(Exception):
     """A tier could not produce an edit (tool failure, extraction failure, invalid LLM output)."""
+
+
+def check_already_fixed(text: str | None, edits: list[dict], file: str) -> None:
+    """Raise AlreadyFixed when every edit's replacement is already in ``text`` (and is not just a piece of its own anchor)."""
+    if text is None or not edits:
+        return
+    if all(e["replace"].strip() and e["replace"] != e["find"] and e["replace"] not in e["find"] and e["replace"] in text for e in edits):
+        raise AlreadyFixed(f"{file} already contains the rendered replacement")
 
 
 @dataclass
@@ -137,4 +146,4 @@ def read_files(rep: Replay) -> list[str]:
 
 from . import router, t1, t2
 
-__all__ = ["Replay", "TierError", "TierResult", "Tracer", "replay", "router", "run_sync", "t1", "t2"]
+__all__ = ["AlreadyFixed", "Replay", "TierError", "TierResult", "Tracer", "check_already_fixed", "replay", "router", "run_sync", "t1", "t2"]

@@ -286,21 +286,68 @@ def test_closed_step_runs_learner_only_in_hybrid(settings, store, monkeypatch):
     assert store.get_by_signature(SIG) is not None
 
 
-def test_capture_real_f4_trace_binds_shas_and_removed_line():
-    """Regression: a real T3 trace (git_log is concatenated JSON objects, two shas from one result)."""
+def _f4_fixture():
     from pathlib import Path
 
-    fx = json.loads((Path(__file__).parent / "fixtures" / "f4_real_trace.json").read_text())
+    return json.loads((Path(__file__).parent / "fixtures" / "f4_real_trace.json").read_text())
+
+
+def test_capture_real_f4_trace_binds_shas_and_removed_line():
+    """Regression: a real T3 trace. The sha is bound by position in git_log (never by message); unrelated steps are pruned."""
+    fx = _f4_fixture()
     pb = crystallize.capture(fx["trace"], fx["proposal"], fx["seed"], signature="673bdb8bab80")
     assert pb is not None and pb.t1_blocked is None
-    shas = [s.args["sha"] for s in pb.steps if s.tool == "git_diff"]
-    assert len(shas) == 2 and len(set(shas)) == 2 and all(x.startswith("${sha_") for x in shas)
+    assert [s.tool for s in pb.steps] == ["k8s_describe_pod", "k8s_logs", "git_read", "git_log", "git_diff"]
+    (diff_step,) = [s for s in pb.steps if s.tool == "git_diff"]
+    assert diff_step.args["sha"].startswith("${sha_")
     by_var = {e.var: e for e in pb.extracts}
-    texts = {i: c["result"] for i, c in enumerate(crystallize.kept_calls(fx["trace"]))}
-    for v in shas:
-        e = by_var[v[2:-1]]
-        assert crystallize.apply_rule(e.rule, texts[e.from_step]) in (
-            "6b4e2aad2de8c0ee58a78d0054a9a5ee360f08a2", "3f385c272d7cbbed59ff3cbf8e33fc8a498ca9ce")
+    sha_rule = by_var[diff_step.args["sha"][2:-1]].rule
+    assert "message" not in sha_rule["pattern"] and "revert" not in sha_rule["pattern"]
+    log_text = next(c["result"] for c in crystallize.kept_calls(fx["trace"]) if c["tool"] == "git_log")
+    assert crystallize.apply_rule(sha_rule, log_text) == "9a9c251b502211167b9ec6e29ef8ee2fd31a1891"  # first entry, not index 2
+    assert next(s for s in pb.steps if s.tool == "git_log").args["path"] == fx["proposal"]["file"]
     db = by_var["db_url"]
     assert db.rule["type"] == "diff_removed_line"
-    assert crystallize.apply_rule(db.rule, texts[db.from_step]) == "redis://redis:6379"
+    assert pb.steps[db.from_step].tool == "git_diff"
+
+
+async def test_t1_replays_real_f4_playbook_on_fresh_incident_with_other_shas():
+    fx = _f4_fixture()
+    pb = crystallize.capture(fx["trace"], fx["proposal"], fx["seed"], signature="673bdb8bab80")
+    kept = {c["tool"]: c["result"] for c in crystallize.kept_calls(fx["trace"])}
+    new = ["a1" * 20, "b2" * 20, "c3" * 20, "d4" * 20]
+    log_text = "\n".join(json.dumps({"sha": sh, "date": "2027-01-01T00:00:00+00:00", "message": f"unrelated {n}"})
+                         for n, sh in enumerate(new))
+    old_diff = next(c["result"] for c in crystallize.kept_calls(fx["trace"]) if c["tool"] == "git_diff"
+                    and "-  DB_URL" in c["result"])
+
+    class Mcp:
+        async def call(self, name, args):
+            if name == "git_log":
+                return log_text, False
+            if name == "git_diff":
+                assert args["sha"] == new[0]
+                return old_diff.replace("3f385c272d7cbbed59ff3cbf8e33fc8a498ca9ce", new[0]), False
+            if name == "git_read" and args["path"] == "deploy/demo/configmaps.yaml":
+                return next(c["result"] for c in crystallize.kept_calls(fx["trace"]) if c["tool"] == "git_read"
+                            and c["args"]["path"] == "deploy/demo/configmaps.yaml"), False
+            return kept.get(name, "x"), False
+
+    seed = {**fx["seed"], "name": "api-5c7d9f8b6-zzzzz"}
+    res = await t1.run(pb, seed, Mcp(), Tracer())
+    assert res.file == fx["proposal"]["file"] and res.edits == fx["proposal"]["edits"]
+
+
+async def test_t1_already_fixed_file_raises_already_fixed_not_tier_error():
+    from repair_operator.models import AlreadyFixed
+
+    pb = captured()
+    mcp = FakeMcp()
+    fixed = CM.replace("  LOG_LEVEL: info", EDIT["replace"])
+
+    async def call(name, args):
+        return (fixed, False) if name == "git_read" else await FakeMcp.call(mcp, name, args)
+
+    mcp.call = call
+    with pytest.raises(AlreadyFixed):
+        await t1.run(pb, {**SEED, "name": "api-9z8-qwert"}, mcp, Tracer())

@@ -10,7 +10,7 @@ from typing import Any
 
 from .. import crystallize, flow
 from ..config import Settings, get_settings
-from ..models import Edit, Proposal
+from ..models import AlreadyFixed, Edit, Proposal
 from ..playbooks import Playbook, PlaybookStore, default_store
 from . import TierError, TierResult, Tracer, run_sync, t1, t2
 
@@ -121,6 +121,8 @@ def analyze_hybrid(
                         else:
                             res = await t2.run(pb, seed, box, llm, tr, feedback or None)
                         return _to_proposal(pb, res)
+                    except AlreadyFixed:
+                        raise  # stale incident: the file is already right, so the playbook is not at fault
                     except TierError as exc:
                         err = str(exc)
                     except Exception as exc:
@@ -137,7 +139,11 @@ def analyze_hybrid(
                 except Exception:
                     log.debug("closing MCP toolbox failed", exc_info=True)
 
-        proposal = run_sync(attempt())
+        try:
+            proposal = run_sync(attempt())
+        except AlreadyFixed:
+            crystallize.learn_event(inc, ns, "skipped", pb, "already fixed in git; playbook not demoted", tier=chain[0])
+            raise
         if proposal is not None:
             return proposal
         route("T3", f"{tried[-1][0]} failed ({tried[-1][1]}): falling back to the full agent (T3)" if tried else reason,

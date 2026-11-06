@@ -88,10 +88,11 @@ def _find_open_sibling(api: Any, namespace: str, source: dict, name: str) -> dic
     return None
 
 
-def _shadow_escalated(api: Any, namespace: str, source: dict, name: str) -> bool:
-    """A shadow-mode incident (``ri-x``, ``ri-x-2``, ...) for the same still-failing pod already ended Escalated.
+def _shadow_escalated(api: Any, namespace: str, name: str) -> bool:
+    """A shadow-mode incident of this fingerprint family (``ri-x``, ``ri-x-2``, ...) already ended Escalated.
 
-    Shadow mode never fixes anything, so the failure persists and would otherwise reopen after the cooldown.
+    Shadow mode never fixes anything, so the failure persists (a Deployment keeps creating new pods) and would
+    otherwise reopen after the cooldown. Deleting the CR lifts the suppression.
     """
     try:
         items = api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL).get("items") or []
@@ -99,13 +100,7 @@ def _shadow_escalated(api: Any, namespace: str, source: dict, name: str) -> bool
         return False
     for it in items if isinstance(items, list) else []:
         n, st = it.get("metadata", {}).get("name") or "", it.get("status") or {}
-        src = (it.get("spec") or {}).get("source") or {}
-        if (
-            (n == name or n.startswith(f"{name}-"))
-            and st.get("shadow")
-            and st.get("phase") == Phase.ESCALATED.value
-            and src.get("name") == source.get("name")
-        ):
+        if (n == name or n.startswith(f"{name}-")) and st.get("shadow") and st.get("phase") == Phase.ESCALATED.value:
             return True
     return False
 
@@ -160,8 +155,8 @@ def open_incident(
     base = name
     if flow.path_for(name, namespace).exists() and not _cr_exists(api, namespace, name):
         name = _unused_flow_name(namespace, base)  # CR deleted but its flow trace remains: do not append to it
-    if _shadow_escalated(api, namespace, source, name):
-        log.info("%s: shadow-escalated incident exists for pod %s, not opening another", name, source.get("name"))
+    if _shadow_escalated(api, namespace, base):
+        log.info("%s: shadow-escalated incident exists for this fingerprint, not opening another", base)
         return None
     sibling = _find_open_sibling(api, namespace, source, name)
     if sibling is not None:

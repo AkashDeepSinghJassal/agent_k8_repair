@@ -549,6 +549,35 @@ def recovered(core_api: Any, incident: dict) -> str | None:
     return None
 
 
+def workload_recovered(incident: dict, apps_api: Any = None) -> str | None:
+    """Reason when the owner Deployment has all replicas updated and available again at analysis time, else None.
+
+    Cheap guard against late incidents (a pod still terminating after the fault was reverted). Never raises.
+    """
+    source = (incident.get("spec") or {}).get("source") or {}
+    kind, _, dep = str(source.get("owner") or "").partition("/")
+    if kind != "Deployment" or not dep:
+        return None
+    ns, _ = _ns_name(incident)
+    try:
+        if apps_api is None:
+            from kubernetes import client, config
+
+            try:
+                config.load_incluster_config()
+            except Exception:  # noqa: BLE001
+                config.load_kube_config()
+            apps_api = client.AppsV1Api()
+        d = _plain(apps_api.read_namespaced_deployment(dep, ns))
+    except Exception:  # noqa: BLE001
+        return None
+    want, st = (d.get("spec") or {}).get("replicas", 1), d.get("status") or {}
+    if (want and all((st.get(k) or 0) == want for k in ("replicas", "updatedReplicas", "readyReplicas", "availableReplicas"))
+            and (st.get("observedGeneration") or 0) >= (d.get("metadata") or {}).get("generation", 0)):
+        return "recovered before analysis"
+    return None
+
+
 def default_clients() -> tuple[Any, Any, Any]:
     """(core_api, custom_api, github repo or None) from the environment."""
     from kubernetes import client, config

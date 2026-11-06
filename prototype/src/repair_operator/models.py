@@ -22,6 +22,10 @@ class Phase(str, Enum):
     ESCALATED = "Escalated"
 
 
+class AlreadyFixed(Exception):
+    """The rendered edit is already present in the file: a stale incident, nothing to repair (not a playbook failure)."""
+
+
 TERMINAL_PHASES = frozenset({Phase.DISMISSED, Phase.HEALED, Phase.FAILED, Phase.ESCALATED})
 
 
