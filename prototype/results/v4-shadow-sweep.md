@@ -41,3 +41,76 @@ Same setup as run 1. Demo started with `REPAIR_SHADOW_MODE=1 REPAIR_ANALYZER_MOD
 | 11 | F15 redis PVC with non-existent StorageClass | yes (10:49:32Z, 13 s after inject at 10:49:19Z) | CONFIG_ERROR (detected as UNSCHEDULABLE) | T3 (CR proposal tier 4, flow says T3) | 8 (9 agent steps) | 52,727 / 1,508 ($0.052, claude-cli sonnet) | none (escalated; deploy/demo/redis.yaml read) | none | PVC redis-data uses storageClassName fast-ssd, which is not in the cluster (ProvisioningFailed) | no (escalated, no fix proposed; a correct fix would use standard or drop the volume) | 2/3 (seed "unbound immediate PersistentVolumeClaims"; k8s_events "storageclass fast-ssd not found"; "cluster only has standard" NOT established because k8s_get does not support the storageclasses kind) | none fired | 33 s (10:49:32.2Z to 10:50:05.3Z) | Shadow Escalated (reason shadow_mode), one agent_start, one proposal, one outcome; learn skipped. Incident ri-bb4b31ac8a. Anomaly: detector UNSCHEDULABLE, agent CONFIG_ERROR (catalog expects UNSCHEDULABLE). Anomaly: CR status proposal.tier is 4 while the flow records T3. Tooling gap: k8s tool has no storageclasses kind ("unknown kind 'storageclasses'"), so the agent could not verify the cluster's classes, which is why it escalated. Revert: commit 0b1eda3, Argo Synced/Healthy at 10:50:42Z, redis Running, PVC pruned. Incident deleted. |
 | 12 | F16 runAsNonRoot on an image that runs as root | yes (10:51:08Z, 12 s after inject at 10:50:56Z) | CONFIG_ERROR (classHint CONFIG_ERROR) | T3 | 6 (7 agent steps) | 49,651 / 979 ($0.044, claude-cli sonnet) | deploy/demo/worker.yaml | removed the `securityContext: runAsNonRoot: true` block | Commit 1039be0 added runAsNonRoot to python:3.12-alpine (runs as root), so CreateContainerConfigError | yes (removes runAsNonRoot, one of the two fixes the catalog allows) | 3/3 (seed "container has runAsNonRoot and image will run as root"; git_diff shows runAsNonRoot added with no runAsUser; root image from the kubelet message) | none fired | 32 s (10:51:08.5Z to 10:51:40.7Z) | Shadow Escalated (reason shadow_mode), one agent_start, one proposal, one outcome; learn skipped. Incident ri-877238e430. Revert: commit e447e9e, Argo Synced/Healthy at 10:52:17Z, worker 1/1 Running (the stuck CreateContainerConfigError pod went away on its own). Incident deleted. |
 | 13 | F17 api Service targetPort wrong (smoke test fails) | yes (10:53:13Z, 40 s after inject at 10:52:33Z, detected on workflow release-pipeline-fault-f4m29) | CONFIG_ERROR (detected as STAGE_FAILURE) | T3 | 12 (13 agent steps) | 71,726 / 1,824 ($0.070, claude-cli sonnet) | deploy/demo/api.yaml | targetPort 8080 -> 8000 | Service api targetPort 8080 while the container listens on 8000, so the smoke-test curl fails (exit 28) | yes | 3/4 (smoke-test "exit code 28" from the seed message; api Ready from endpoints "1 ready addresses"; targetPort 8080 from k8s_list and git_read; the commit that changed the port was NOT established, git_log ran on networkpolicy.yaml, not api.yaml; /healthz not checked) | none fired | 34 s (10:53:13.8Z to 10:53:48.0Z) | Shadow Escalated (reason shadow_mode), one agent_start, one proposal, one outcome; learn skipped. Incident ri-f9dccf2338. Anomaly: detector STAGE_FAILURE, agent CONFIG_ERROR (catalog expects STAGE_FAILURE, same as F6). Anomaly: k8s_logs on the smoke-test pod returned 404 (no step logs). Revert: commit 47dd61c, Argo Synced/Healthy at 10:54:38Z, api and frontend Running. Incident deleted. Left behind: the failed workflow pod release-pipeline-fault-f4m29-smoke-test-417432888 (Error). |
+
+## Run 3: tier scenarios (issue #30)
+
+Demo started with `REPAIR_SHADOW_MODE=1 REPAIR_ANALYZER_MODE=hybrid REPAIR_AGENT_PROVIDER=claude-cli` (LLM single-shot fallback printed as groq; the T2 calls themselves ran on claude-cli sonnet). Playbooks seeded with `seed_playbook.py`: F4 as T1 (`pb-1bf9`), F5 as T2 (`pb-e4db`). `--state T1` for F5 was refused: `REFUSED: t1_blocked: value '/app/worker.pyy' has no provenance` (the worker path value has no extract rule). `GET /api/playbooks` lists both. Every scenario: inject, wait for Escalated (shadow_mode), `scenario_check.py`, revert, wait for Argo Synced/Healthy and pods Ready, delete the incident. Detection times are from the flow `detected` event.
+
+### S1 T1 live replay, F4: FAIL
+
+| Expectation | Result |
+| --- | --- |
+| tier T1 | FAIL: tier T2 (route chain T1 -> T2, fallback_from T1) |
+| no llm_call | FAIL: 1 llm_call (the T2 fallback) |
+| extract events ok | FAIL: `sha_6` extract failed twice (rule did not match), `db_url` ok |
+| proposal adds `DB_URL: redis://redis:6379` | PASS (in the T2 fallback proposal) |
+
+Incident `ri-ef9d6f8d30-3`. Detection to proposal 29.1 s (T1 phase failed at 20.1 s, T2 phase finished at 29.1 s). Tokens: 0 for the T1 attempt, 11,416 in / 298 out for the T2 fallback. T3 F4 reference: 36 s, $0.071. Playbook pb-1bf9 demoted T1 -> T2 with reason "T1 failed: extract sha_6 ...". Learn skipped (Escalated). Revert: commit 9162684, api Running. Incident deleted. Bug B1.
+
+### S2 T2 live, F5: PASS
+
+| Expectation | Result |
+| --- | --- |
+| tier T2 | PASS (route: pb-e4db is T2, replay then one narrow LLM call) |
+| exactly one llm_call | PASS (1 in each of the 3 incidents) |
+| proposal `/app/worker.pyy` -> `/app/worker.py` | PASS (`deploy/demo/worker.yaml`) |
+| rulesMatch recorded | PASS, recorded as `rulesMatch: false` in CR `status.agent` (no extract rule for the worker path, `t1_blocked`, so there is nothing to match) |
+
+Incident `ri-e5a1ca687b-2` (first of four, see B3). Detection to proposal 24.7 s. Tokens: 8,487 in / 183 out (claude-cli sonnet). Revert: commit cba5d3c, worker 1/1 Running after 20 s. Incidents `-2` to `-5` deleted. Playbook pb-e4db demoted T2 -> T3 by `-5` (B2).
+
+### S3 fallback chain, F4: PASS (with a caveat)
+
+Corruption: `diff_removed_line` key `DB_URL` -> `NO_SUCH_KEY` in `pb-1bf9` extracts, state kept at T1 (DB backup taken first). Schema: `playbooks(id, signature, data JSON)`.
+
+| Expectation | Result |
+| --- | --- |
+| route T1 | PASS (route T1, 0 verified runs) |
+| extract failure on db_url | PARTIAL: `db_url` failed (rule did not match), but `sha_6` failed first in S1, not in S3, so the failure order is not isolated |
+| route with fallback_from T1 to T2 | PASS (route T2, reason "T1 failed ... falling back to T2") |
+| playbook history demotion | PASS (`demoted T1 -> T2`, reason "T1 failed: extract db_url did not match ...") |
+| outcome Escalated | PASS |
+
+Incident `ri-ef9d6f8d30-4`, chain: route T1 at 16.4 s, db_url extract error at 21.7 s, route T2 at 21.7 s, llm_call at 31.1 s (11,647 in / 310 out), proposal at 31.7 s. Playbook now T2 with `fail: 1`. Revert: api Running with `DB_URL: redis://redis:6379`. Incident deleted. The scenario_check run with `--expect-tier T1` reports FAIL on the tier by design; the saved output uses `--expect-tier T2`.
+
+### S4 re-run F10, F11, F12 with the improved prompt (T3): PASS
+
+| Fault | Incident(s) (fresh name) | Tier | Proposal (file, edit) | Introducing commit restored? | Detect to proposal | Tokens in/out (cost) | Revert and restart |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| F10 api Service renamed | `ri-2c6b41c60b-3`, `-4`, `-5` (new suffixes, `-2` is an old Healed incident and was not touched) | T3 | `deploy/demo/api.yaml`, `name: api-svc` -> `name: api` | yes (commit 3928d5b renamed api -> api-svc, root cause names it) | 40.7 s / 41.9 s / 46.7 s | 69,468/2,058 ($0.078), 68,257/1,975 ($0.075), 69,526/2,118 ($0.079) | commit 9b3c590, `rollout restart deploy/frontend` ran, new frontend pod Running in about 10 s (PASS) |
+| F11 frontend-nginx key renamed | `ri-2c6b41c60b-6` (fresh) | T3 | `deploy/demo/configmaps.yaml`, `site.conf` -> `default.conf` | yes (commit 1c7d768 named in root cause) | 40.7 s | 65,307/1,934 ($0.072) | commit, `rollout restart deploy/frontend`, Running in about 20 s (PASS) |
+| F12 api-b-config renamed (demo-b) | `demo-b/ri-cd12d74c8e-2` (fresh) | T3 | `deploy/demo-b/configmaps.yaml`, `api-b-config-v2` -> `api-b-config` | yes (commit 7360e61 named in root cause) | 38.6 s | 46,043/1,385 ($0.053) | commit, `rollout restart deploy/api-b` ran, new pod Running in about 40 s (PASS) |
+
+Milestones: all three root causes name the introducing commit and the mismatch, so the milestone facts are present. Incident names: no reuse of an old flow file, checked against the flow directory listing before each injection. The prompt fix holds for these three: the proposals restore the original value and do not adapt the consumer (symptom). Each fault was re-escalated 1 to 3 times (B3). Incidents deleted.
+
+### S5 F15 re-run, StorageClass: PASS
+
+| Expectation | Result |
+| --- | --- |
+| diagnose missing StorageClass `fast-ssd` | PASS (root cause: `fast-ssd` does not exist, only `standard` (rancher.io/local-path)) |
+| tool support | PASS: `k8s_list kind=storageclasses` ran and returned `standard` (the old run had failed with "unknown kind") |
+| propose the fix | PASS: `deploy/demo/redis.yaml`, `storageClassName: fast-ssd` -> `standard`, confidence 0.9 |
+
+Incident `ri-bb4b31ac8a-2`. Detection to proposal 35.6 s, tokens 34,429/1,225 ($0.043), tier T3, detector UNSCHEDULABLE. Caveat: the rationale notes that the PVC storageClassName is immutable, so the fix may need the PVC deleted and recreated. Shadow mode never applies it, so this is unverified. Revert: commit landed, Argo Synced/Healthy at 12:46:56, Pending redis pod and PVC pruned, redis Running. Stale incidents `-3`, `-4` (B2, B3) deleted.
+
+### Bugs (Run 3)
+
+- **B1 T1 extract depends on git history (S1, S3).** `pb-1bf9` step 6 `git_log` is followed by step 7 `git_diff` on `sha_6`, which the capture bound to the message `fault(F4): revert missing env var DB_URL`, an old revert, not the introducing commit (`config: tidy api configmap`, which `sha_6_1` captures correctly). The `sha_6` regex only matches when that old revert is inside the `git_log` result window. S1 (incident `-3`): the window did not include it, so the extract failed (flow `demo__ri-ef9d6f8d30-3.jsonl`, extract event "rule did not match"). S3 (incident `-4`): the newest revert was in the window, so it matched. The T1 result therefore depends on history depth, and every failure demotes the playbook. The capture should drop non-introducing `git_log`/`git_diff` steps and extract the sha from the introducing change. Also, the T2 run logs "Cannot replay git_diff: variable sha_6 is not bound" as an error for step 8.
+- **B2 Stale incident after a revert demotes a playbook.** `pb-e4db` (F5) was demoted T2 -> T3 at 11:33:19Z by `ri-e5a1ca687b-5`, reason "T2 failed: LLM edit anchor '/app/worker.pyy' is not found exactly once in deploy/demo/worker.yaml". That incident was raised after F5 was already reverted (the anchor was gone), so the playbook was penalised for a fault that no longer existed. F15 gave the same pattern: `ri-bb4b31ac8a-3` and `-4` (class OTHER) escalated while the Pending pod was still alive, after the revert. Demotion and learning should be skipped when the failing pod is no longer failing or the anchor is absent at detection time.
+- **B3 Repeated incidents for one persistent fault (shadow mode).** After each Escalated, the operator opens a new incident with the same fingerprint while the pod still fails: F5 gave `-2` to `-5` (4 T2 runs, each with an LLM call), F10 gave `-3`, `-4`, `-5` (3 T3 runs, about $0.23 in total), F15 gave `-2` to `-4`. F4 gave one incident per run in S1 and S3 (not reproduced over longer windows). Closed escalations should suppress re-detection for the same fingerprint until the pod recovers or the fault changes.
+- **Minor:** `active-faults.json` said `demo: F1` at the start with no fault in the repo (stale, cleared to `{}` by the revert). A second `repair_faults revert` on an already reverted fault fails with "find text occurs 0 times" (not idempotent, harmless). CR `rulesMatch: false` on T2 runs where the playbook is `t1_blocked`: the field's meaning is undefined in that case.
+
+### Cleanup state
+
+- Demo RUNNING (operator and dashboard started by `start_demo.sh`, shadow hybrid, claude-cli). No fault injected: `repair-demo-app` synced, `active-faults.json` = `{}`, pods Running in demo and demo-b, Argo `demo-app` and `demo-app-b` Synced/Healthy.
+- Incidents of this run deleted. Pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left as they were.
+- Playbook states now: `pb-1bf9` (F4) T2 (demoted by S1 and S3), `pb-e4db` (F5) T3 (demoted by B2). Both were seeded again for this run and not reset.
