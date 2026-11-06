@@ -534,6 +534,16 @@ def _emit_evidence(incident: dict, bundle: dict, attempt: int) -> None:
         log.debug("evidence flow event failed", exc_info=True)
 
 
+def restarts_increased(pod: dict, source: dict) -> bool:
+    """A liveness restart-loop incident whose container restarted again since detection (Ready between restarts is not recovery)."""
+    if source.get("reason") != "LivenessProbeRestarts" or source.get("restartCount") is None:
+        return False
+    for cs in (pod.get("status") or {}).get("containerStatuses") or []:
+        if cs.get("name") == source.get("container"):
+            return (cs.get("restartCount") or 0) > source["restartCount"]
+    return False
+
+
 def recovered(core_api: Any, incident: dict) -> str | None:
     """Reason when a Pod incident healed itself during the debounce window, else None."""
     ns, _ = _ns_name(incident)
@@ -544,15 +554,16 @@ def recovered(core_api: Any, incident: dict) -> str | None:
         pod = _plain(core_api.read_namespaced_pod(source.get("name", ""), ns))
     except Exception as exc:  # noqa: BLE001
         return "pod no longer exists" if _status(exc) == 404 else None
-    if pod_recovered(pod, source.get("container", "")):
+    if pod_recovered(pod, source.get("container", "")) and not restarts_increased(pod, source):
         return "pod recovered within the debounce window"
     return None
 
 
-def workload_recovered(incident: dict, apps_api: Any = None) -> str | None:
+def workload_recovered(incident: dict, apps_api: Any = None, core_api: Any = None) -> str | None:
     """Reason when the owner Deployment has all replicas updated and available again at analysis time, else None.
 
     Cheap guard against late incidents (a pod still terminating after the fault was reverted). Never raises.
+    A restart-looping pod (restartCount above the detected one) is not recovered even when Ready.
     """
     source = (incident.get("spec") or {}).get("source") or {}
     kind, _, dep = str(source.get("owner") or "").partition("/")
@@ -569,6 +580,13 @@ def workload_recovered(incident: dict, apps_api: Any = None) -> str | None:
                 config.load_kube_config()
             apps_api = client.AppsV1Api()
         d = _plain(apps_api.read_namespaced_deployment(dep, ns))
+        if source.get("reason") == "LivenessProbeRestarts" and source.get("restartCount") is not None:
+            if core_api is None:
+                from kubernetes import client
+
+                core_api = client.CoreV1Api()
+            if restarts_increased(_plain(core_api.read_namespaced_pod(source.get("name", ""), ns)), source):
+                return None
     except Exception:  # noqa: BLE001
         return None
     want, st = (d.get("spec") or {}).get("replicas", 1), d.get("status") or {}

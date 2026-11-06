@@ -494,3 +494,22 @@ def test_workload_recovered_reads_deployment_status():
     assert evidence.workload_recovered(inc, api(2)) == "recovered before analysis"
     assert evidence.workload_recovered(inc, api(1)) is None
     assert evidence.workload_recovered(inc, api(2, gen=1)) is None
+
+
+def test_workload_recovered_false_while_probe_restarts_increase():
+    from types import SimpleNamespace
+
+    from repair_operator import evidence
+
+    src = {"owner": "Deployment/api", "name": "api-1", "container": "api", "reason": "LivenessProbeRestarts", "restartCount": 3}
+    inc = {"metadata": {"name": "ri-x", "namespace": "demo"}, "spec": {"source": src}}
+    d = {"metadata": {"generation": 2}, "spec": {"replicas": 1},
+         "status": {"observedGeneration": 2, "replicas": 1, "updatedReplicas": 1, "readyReplicas": 1, "availableReplicas": 1}}
+    apps = SimpleNamespace(read_namespaced_deployment=lambda n, ns: d)
+
+    def core(count):
+        pod = {"status": {"containerStatuses": [{"name": "api", "restartCount": count}]}}
+        return SimpleNamespace(read_namespaced_pod=lambda n, ns: pod)
+
+    assert evidence.workload_recovered(inc, apps, core(4)) is None
+    assert evidence.workload_recovered(inc, apps, core(3)) == "recovered before analysis"

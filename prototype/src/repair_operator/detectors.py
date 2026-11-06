@@ -123,6 +123,7 @@ def pod_incident_specs(namespace: str, body: dict, apps_api: Any = None, events:
                 "reason": f["reason"],
                 "classHint": f["classHint"],
                 **({"message": probe_msg} if f["reason"] == PROBE_REASON and probe_msg else {}),
+                **({"restartCount": f["restartCount"]} if f["reason"] == PROBE_REASON else {}),
             },
             "fp": dedupe_fingerprint(namespace, owner, f["container"], f["reason"]),
         }

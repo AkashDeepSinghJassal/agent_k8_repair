@@ -291,6 +291,24 @@ def test_dismissed_when_pod_recovered(tmp_path):
     assert "closed" in patch["status"]["timestamps"]
 
 
+def _probe_incident(count=3):
+    inc = pod_incident()
+    inc["spec"]["source"].update(reason="LivenessProbeRestarts", restartCount=count)
+    return inc
+
+
+def test_probe_restart_loop_not_dismissed_when_count_increased():
+    patch: dict = {}
+    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(pod(ready=True, restarts=4)), None, None), NOW)
+    assert patch["status"]["phase"] != "Dismissed"
+
+
+def test_probe_restart_loop_dismissed_when_count_stable_and_ready():
+    patch: dict = {}
+    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(pod(ready=True, restarts=3)), None, None), NOW)
+    assert patch["status"]["phase"] == "Dismissed"
+
+
 def test_dismissed_when_pod_gone():
     patch: dict = {}
     evidence.handle_collect(pod_incident(), patch, (FakeCore(None), None, None), NOW)
