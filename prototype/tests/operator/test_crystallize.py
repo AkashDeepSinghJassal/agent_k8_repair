@@ -284,3 +284,23 @@ def test_closed_step_runs_learner_only_in_hybrid(settings, store, monkeypatch):
     verify_handlers.closed_step(healed_body("ri-1"), patch, repo=object())
     assert patch["status"]["hybridLearning"]["action"] == "captured"
     assert store.get_by_signature(SIG) is not None
+
+
+def test_capture_real_f4_trace_binds_shas_and_removed_line():
+    """Regression: a real T3 trace (git_log is concatenated JSON objects, two shas from one result)."""
+    from pathlib import Path
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "f4_real_trace.json").read_text())
+    pb = crystallize.capture(fx["trace"], fx["proposal"], fx["seed"], signature="673bdb8bab80")
+    assert pb is not None and pb.t1_blocked is None
+    shas = [s.args["sha"] for s in pb.steps if s.tool == "git_diff"]
+    assert len(shas) == 2 and len(set(shas)) == 2 and all(x.startswith("${sha_") for x in shas)
+    by_var = {e.var: e for e in pb.extracts}
+    texts = {i: c["result"] for i, c in enumerate(crystallize.kept_calls(fx["trace"]))}
+    for v in shas:
+        e = by_var[v[2:-1]]
+        assert crystallize.apply_rule(e.rule, texts[e.from_step]) in (
+            "6b4e2aad2de8c0ee58a78d0054a9a5ee360f08a2", "3f385c272d7cbbed59ff3cbf8e33fc8a498ca9ce")
+    db = by_var["db_url"]
+    assert db.rule["type"] == "diff_removed_line"
+    assert crystallize.apply_rule(db.rule, texts[db.from_step]) == "redis://redis:6379"

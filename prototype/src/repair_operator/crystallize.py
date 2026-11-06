@@ -147,6 +147,19 @@ def _context_rule(text: str, value: str) -> dict | None:
     return None
 
 
+def _sha_entry_rule(text: str, value: str) -> dict | None:
+    """Rule for a commit sha in a git_log listing (concatenated JSON objects, not one document): anchor on its message."""
+    if not _SHA.match(value) or (i := text.find(value)) == -1:
+        return None
+    end = text.find("}", i)
+    m = re.search(r'"message":\s*"((?:[^"\\]|\\.)*)"', text[i : end if end != -1 else len(text)])
+    if not m:
+        return None
+    pattern = r'([0-9a-f]{7,40})"\s*,\s*"date":\s*"[^"]*"\s*,\s*"message":\s*"' + re.escape(m.group(1))
+    rule = {"type": "regex", "pattern": pattern, "group": 1}
+    return rule if apply_rule(rule, text) == value else None
+
+
 def derive_rule(tool: str, text: str, value: str, key: str | None = None) -> dict | None:
     """Best validated rule that reproduces ``value`` from ``text``: diff_removed_line, json_path, anchored regex."""
     if key and tool == "git_diff":
@@ -154,6 +167,8 @@ def derive_rule(tool: str, text: str, value: str, key: str | None = None) -> dic
         if apply_rule(rule, text) == value:
             return rule
     if (rule := _json_rule(text, value)) and apply_rule(rule, text) == value:
+        return rule
+    if tool == "git_log" and (rule := _sha_entry_rule(text, value)):
         return rule
     if key:
         body = r"([^\n\"']+)" if re.search(r"\s", value) else r"([^\s\"']+)"
@@ -220,12 +235,15 @@ def _provenance(value: str, key: str | None, calls: list[dict], variables: dict[
     for name in _SEED_ORDER:
         if variables.get(name) == value:
             return name, None
+    found: list[Extract] = []
     for i, c in enumerate(calls):
         text = _text(c)
-        if value in text:
-            rule = derive_rule(c["tool"], text, value, key)
-            if rule:
-                return "step", Extract("", i, rule)
+        if value in text and (rule := derive_rule(c["tool"], text, value, key)):
+            found.append(Extract("", i, rule))
+    # a value a commit removed is best read from that diff's removed line
+    found.sort(key=lambda e: e.rule["type"] != "diff_removed_line")
+    if found:
+        return "step", found[0]
     return None
 
 
@@ -294,8 +312,9 @@ def capture(trace: list[dict], proposal: Any, seed: dict, *, signature: str = ""
                 for j in range(i):
                     rule = derive_rule(calls[j]["tool"], _text(calls[j]), v)
                     if rule:
-                        var = f"sha_{j}"
-                        if not any(e.var == var for e in extracts):
+                        same = next((e for e in extracts if e.from_step == j and e.rule == rule), None)
+                        var = same.var if same else f"sha_{j}" if not any(e.var == f"sha_{j}" for e in extracts) else f"sha_{j}_{len(extracts)}"
+                        if same is None:
                             extracts.append(Extract(var, j, rule))
                         args[k] = "${" + var + "}"
                         break
