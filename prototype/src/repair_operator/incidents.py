@@ -105,6 +105,29 @@ def _shadow_escalated(api: Any, namespace: str, name: str) -> bool:
     return False
 
 
+def _owner_active(api: Any, namespace: str, source: dict, name: str) -> bool:
+    """An active or shadow-Escalated incident exists for the same owner workload, whatever its fingerprint.
+
+    The failure reason of a pod can change (ErrImagePull -> ImagePullBackOff) and old pods are re-detected, which
+    gives new fingerprints for one workload failure. Deleting the CR lifts it.
+    """
+    owner = source.get("owner")
+    if source.get("kind") != "Pod" or not owner:
+        return False
+    try:
+        items = api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL).get("items") or []
+    except Exception:  # noqa: BLE001
+        return False
+    terminal = {p.value for p in TERMINAL_PHASES}
+    for it in items if isinstance(items, list) else []:
+        src, st = (it.get("spec") or {}).get("source") or {}, it.get("status") or {}
+        if it.get("metadata", {}).get("name") == name or src.get("kind") != "Pod" or src.get("owner") != owner:
+            continue
+        if st.get("phase") not in terminal or (st.get("shadow") and st.get("phase") == Phase.ESCALATED.value):
+            return True
+    return False
+
+
 def _merge_signal(api: Any, namespace: str, existing: dict, source: dict) -> dict:
     """Record ``source`` as an extra signal on ``existing``; OOMKilled wins as the class hint."""
     name = existing["metadata"]["name"]
@@ -161,6 +184,9 @@ def open_incident(
     sibling = _find_open_sibling(api, namespace, source, name)
     if sibling is not None:
         return _merge_signal(api, namespace, sibling, source)
+    if _owner_active(api, namespace, source, name):
+        log.info("%s: an active or shadow-escalated incident exists for owner %s, not opening another", name, source.get("owner"))
+        return None
     body: dict[str, Any] = {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "RepairIncident",

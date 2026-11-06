@@ -189,6 +189,42 @@ def test_router_falls_back_t1_t2_t3(settings, store):
     assert learn == ["demoted", "demoted"]
 
 
+class FixedFileMcp(FakeMcp):
+    async def call(self, name, args):
+        if name == "git_read":
+            return CM.replace("  LOG_LEVEL: info", EDIT["replace"]), False
+        return await super().call(name, args)
+
+
+def test_router_collision_falls_to_t3_without_demotion(settings, store):
+    pb = captured()
+    pb.state = "T1"
+    store.upsert(pb)
+    calls = []
+    prop = router.analyze_hybrid(bundle(), None, settings=settings, store=store, mcp_factory=mcp_factory(FixedFileMcp()),
+                                 t3=t3_stub(calls), recovered_fn=lambda inc: None)
+    assert prop.tier_used == "T3" and len(calls) == 1
+    after = store.get(pb.id)
+    assert after.state == "T1" and after.runs["fail"] == 0
+    assert [h["event"] for h in after.history][-1:] == ["collision"] and after.history[-1]["incident"] == "ri-a"
+    r = routes()
+    assert [(x["data"]["chosen_tier"], x["data"]["fallback_from"]) for x in r] == [("T1", None), ("T3", "T1")]
+    assert "signature collision" in r[-1]["data"]["reason"] and f"playbook {pb.id} does not apply" in r[-1]["data"]["reason"]
+    assert "demoted" not in [e["data"]["action"] for e in flow.read("ri-a", NS) if e["kind"] == "learn"]
+
+
+def test_router_already_fixed_and_recovered_is_dismissed_not_demoted(settings, store):
+    from repair_operator.models import AlreadyFixed
+
+    pb = captured()
+    pb.state = "T1"
+    store.upsert(pb)
+    with pytest.raises(AlreadyFixed):
+        router.analyze_hybrid(bundle(), None, settings=settings, store=store, mcp_factory=mcp_factory(FixedFileMcp()),
+                              t3=t3_stub([]), recovered_fn=lambda inc: "recovered before analysis")
+    assert store.get(pb.id).state == "T1" and not [h for h in store.get(pb.id).history if h["event"] == "collision"]
+
+
 def test_router_t2_fallback_succeeds_and_feedback_skips_t1(settings, store):
     pb = captured()
     pb.state = "T1"

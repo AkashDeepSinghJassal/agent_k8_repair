@@ -123,6 +123,24 @@ def test_open_incident_skipped_while_shadow_escalated_for_fingerprint():
     assert open_incident(api, "demo", {"kind": "Pod", "name": "p"}, FP) == {"ok": 1}
 
 
+def test_open_incident_skipped_while_owner_has_active_or_shadow_escalated_incident():
+    def item(name, phase, shadow=False, container="api"):
+        return {"metadata": {"name": name}, "spec": {"source": {"kind": "Pod", "owner": "Deployment/api", "container": container}},
+                "status": {"phase": phase, **({"shadow": True} if shadow else {})}}
+
+    src = {"kind": "Pod", "name": "p2", "owner": "Deployment/api", "container": "sidecar"}
+    api = MagicMock()
+    api.create_namespaced_custom_object.return_value = {"ok": 1}
+    # different fingerprint (reason changed), same owner: active or shadow-Escalated blocks, whatever the fingerprint
+    for it in (item("ri-zzzzzzzzzz", "Analyzing"), item("ri-yyyyyyyyyy", "Escalated", shadow=True)):
+        api.list_namespaced_custom_object.return_value = {"items": [it]}
+        assert open_incident(api, "demo", src, FP) is None
+    api.create_namespaced_custom_object.assert_not_called()
+    # terminal non-shadow incident, or another owner: allowed
+    api.list_namespaced_custom_object.return_value = {"items": [item("ri-zzzzzzzzzz", "Healed"), item("ri-yyyyyyyyyy", "Escalated")]}
+    assert open_incident(api, "demo", src, FP) == {"ok": 1}
+
+
 def test_set_phase_timestamps():
     now = datetime(2026, 11, 3, 10, 15, 42, tzinfo=UTC)
     patch: dict = {}

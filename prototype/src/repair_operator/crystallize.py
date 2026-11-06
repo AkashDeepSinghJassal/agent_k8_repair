@@ -378,6 +378,7 @@ def learn_event(incident: str, namespace: str, action: str, pb: Playbook | None,
         "promoted": f"Promoted playbook {pid} {frm} -> {to}",
         "demoted": f"Demoted playbook {pid} {frm} -> {to}",
         "skipped": "Learning skipped",
+        "collision": f"Playbook {pid} does not apply (signature collision)",
     }
     title = titles.get(action, action) + (f": {reason}" if action in ("skipped", "demoted") and reason else "")
     flow.emit(incident, namespace, "learn", title=title, tier=tier, status="skipped" if action == "skipped" else "ok", data={

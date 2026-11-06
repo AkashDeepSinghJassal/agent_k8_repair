@@ -11,7 +11,7 @@ from typing import Any
 from .. import crystallize, flow
 from ..config import Settings, get_settings
 from ..models import AlreadyFixed, Edit, Proposal
-from ..playbooks import Playbook, PlaybookStore, default_store
+from ..playbooks import Playbook, PlaybookStore, default_store, push_history
 from . import TierError, TierResult, Tracer, run_sync, t1, t2
 
 log = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ def _to_proposal(pb: Playbook, res: TierResult) -> Proposal:
 def analyze_hybrid(
     bundle: dict, feedback: list[str] | None = None, *, settings: Settings | None = None, store: PlaybookStore | None = None,
     mcp_factory: Callable[[], Any] | None = None, llm: t2.LlmFn | None = None, t3: Callable[..., Proposal] | None = None,
-    seed: dict | None = None,
+    seed: dict | None = None, recovered_fn: Callable[[dict], str | None] | None = None,
 ) -> Proposal:
     from ..analyzer.agent import agent_analyze, build_seed
 
@@ -99,6 +99,14 @@ def analyze_hybrid(
             "counts": dict(pb.runs) if pb else {}}) if inc else None
 
     tried: list[tuple[str, str]] = []
+    collision: list[str] = []  # set when the playbook's fix is already in the file but the workload still fails
+
+    def still_failing() -> bool:
+        from ..evidence import workload_recovered
+
+        incident = {"metadata": {"namespace": ns, "name": inc}, "spec": {"source": {"owner": seed.get("owner")}}}
+        return not (recovered_fn or workload_recovered)(incident)
+
     if pb is not None and chain[0] != "T3":
         async def attempt() -> Proposal | None:
             factory = mcp_factory or default_mcp
@@ -122,7 +130,18 @@ def analyze_hybrid(
                             res = await t2.run(pb, seed, box, llm, tr, feedback or None)
                         return _to_proposal(pb, res)
                     except AlreadyFixed:
-                        raise  # stale incident: the file is already right, so the playbook is not at fault
+                        if not still_failing():
+                            raise  # stale incident: the file is already right, so the playbook is not at fault
+                        # Fingerprint collision: another fault with the same symptom signature. Not a playbook failure.
+                        collision.append(tier)
+                        why = (f"playbook {pb.id} does not apply: its fix is already present but the "
+                               "workload still fails (signature collision)")
+                        tried.append((tier, why))
+                        fresh = store.get(pb.id) or pb
+                        push_history(fresh, "collision", fresh.state, fresh.state, tried[-1][1], inc)
+                        store.upsert(fresh)
+                        crystallize.learn_event(inc, ns, "collision", fresh, tried[-1][1], tier=tier)
+                        return None
                     except TierError as exc:
                         err = str(exc)
                     except Exception as exc:
@@ -146,7 +165,7 @@ def analyze_hybrid(
             raise
         if proposal is not None:
             return proposal
-        route("T3", f"{tried[-1][0]} failed ({tried[-1][1]}): falling back to the full agent (T3)" if tried else reason,
+        route("T3", tried[-1][1] if collision else f"{tried[-1][0]} failed ({tried[-1][1]}): falling back to the full agent (T3)" if tried else reason,
               tried[-1][0] if tried else None)
     else:
         route("T3", reason)
