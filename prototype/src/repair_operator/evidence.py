@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -534,17 +534,51 @@ def _emit_evidence(incident: dict, bundle: dict, attempt: int) -> None:
         log.debug("evidence flow event failed", exc_info=True)
 
 
-def restarts_increased(pod: dict, source: dict) -> bool:
-    """A liveness restart-loop incident whose container restarted again since detection (Ready between restarts is not recovery)."""
+def _ts(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        return datetime.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def probe_still_failing(core_api: Any, pod: dict, source: dict, now: datetime | None = None) -> bool:
+    """A liveness restart-loop incident is still failing (Ready between restarts is NOT recovery).
+
+    True when the count is >= the detected one and the last termination is within 3 probe periods (5 min if unknown),
+    or a liveness-probe-failed Event for the pod occurred in the last 5 min.
+    """
     if source.get("reason") != "LivenessProbeRestarts" or source.get("restartCount") is None:
         return False
+    now = now or datetime.now(UTC)
+    window = 300.0
+    for c in (pod.get("spec") or {}).get("containers") or []:
+        if c.get("name") == source.get("container") and (c.get("livenessProbe") or {}).get("periodSeconds"):
+            window = 3.0 * c["livenessProbe"]["periodSeconds"]
     for cs in (pod.get("status") or {}).get("containerStatuses") or []:
-        if cs.get("name") == source.get("container"):
-            return (cs.get("restartCount") or 0) > source["restartCount"]
+        if cs.get("name") != source.get("container"):
+            continue
+        done = _ts(((cs.get("lastState") or {}).get("terminated") or {}).get("finishedAt"))
+        if (cs.get("restartCount") or 0) >= source["restartCount"] and done and (now - done).total_seconds() <= window:
+            return True
+    try:
+        resp = core_api.list_namespaced_event(
+            (pod.get("metadata") or {}).get("namespace") or source.get("namespace") or "default",
+            field_selector=f"involvedObject.name={source.get('name', '')}",
+        )
+        raw = resp.get("items") if isinstance(resp, dict) else getattr(resp, "items", None)
+    except Exception:  # noqa: BLE001
+        return False
+    for e in (_plain(e) for e in raw or []):
+        when = _ts(e.get("lastTimestamp") or e.get("eventTime") or (e.get("metadata") or {}).get("creationTimestamp"))
+        text = (e.get("message") or "").lower()
+        if when and 0 <= (now - when).total_seconds() <= 300 and "liveness probe" in text:
+            return True
     return False
 
 
-def recovered(core_api: Any, incident: dict) -> str | None:
+def recovered(core_api: Any, incident: dict, now: datetime | None = None) -> str | None:
     """Reason when a Pod incident healed itself during the debounce window, else None."""
     ns, _ = _ns_name(incident)
     source = (incident.get("spec") or {}).get("source") or {}
@@ -554,7 +588,7 @@ def recovered(core_api: Any, incident: dict) -> str | None:
         pod = _plain(core_api.read_namespaced_pod(source.get("name", ""), ns))
     except Exception as exc:  # noqa: BLE001
         return "pod no longer exists" if _status(exc) == 404 else None
-    if pod_recovered(pod, source.get("container", "")) and not restarts_increased(pod, source):
+    if pod_recovered(pod, source.get("container", "")) and not probe_still_failing(core_api, pod, source, now):
         return "pod recovered within the debounce window"
     return None
 
@@ -563,7 +597,7 @@ def workload_recovered(incident: dict, apps_api: Any = None, core_api: Any = Non
     """Reason when the owner Deployment has all replicas updated and available again at analysis time, else None.
 
     Cheap guard against late incidents (a pod still terminating after the fault was reverted). Never raises.
-    A restart-looping pod (restartCount above the detected one) is not recovered even when Ready.
+    A liveness restart-looping pod (recent termination or probe event) is not recovered even when Ready.
     """
     source = (incident.get("spec") or {}).get("source") or {}
     kind, _, dep = str(source.get("owner") or "").partition("/")
@@ -585,7 +619,7 @@ def workload_recovered(incident: dict, apps_api: Any = None, core_api: Any = Non
                 from kubernetes import client
 
                 core_api = client.CoreV1Api()
-            if restarts_increased(_plain(core_api.read_namespaced_pod(source.get("name", ""), ns)), source):
+            if probe_still_failing(core_api, _plain(core_api.read_namespaced_pod(source.get("name", ""), ns)), source):
                 return None
     except Exception:  # noqa: BLE001
         return None
@@ -618,7 +652,7 @@ def handle_collect(
 ) -> None:
     """Detected -> Collected, or Dismissed when the pod recovered. Writes into ``patch``."""
     core_api, custom_api, github = clients if clients is not None else default_clients()
-    reason = recovered(core_api, body)
+    reason = recovered(core_api, body, now)
     if reason:
         incidents.set_phase(patch, Phase.DISMISSED, now, incident=body, outcome={"result": "dismissed", "reason": reason})
         return

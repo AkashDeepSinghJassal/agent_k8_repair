@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import jsonschema
@@ -297,15 +297,32 @@ def _probe_incident(count=3):
     return inc
 
 
-def test_probe_restart_loop_not_dismissed_when_count_increased():
+def _probe_pod(count, ago_s=None):
+    p = pod(ready=True, restarts=count)
+    term = {"reason": "Error", "exitCode": 1}
+    if ago_s is not None:
+        term["finishedAt"] = (NOW - timedelta(seconds=ago_s)).isoformat()
+    p["status"]["containerStatuses"][0]["lastState"] = {"terminated": term}
+    return p
+
+
+def test_probe_restart_loop_not_dismissed_when_count_unchanged_but_recent_termination():
+    # 5 s debounce, count unchanged, Ready, but the container was killed 40 s ago
     patch: dict = {}
-    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(pod(ready=True, restarts=4)), None, None), NOW)
+    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(_probe_pod(3, 40)), None, None), NOW)
     assert patch["status"]["phase"] != "Dismissed"
 
 
-def test_probe_restart_loop_dismissed_when_count_stable_and_ready():
+def test_probe_restart_loop_not_dismissed_on_recent_probe_event():
+    ev = [{"message": "Liveness probe failed: HTTP 500", "lastTimestamp": (NOW - timedelta(seconds=30)).isoformat()}]
     patch: dict = {}
-    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(pod(ready=True, restarts=3)), None, None), NOW)
+    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(_probe_pod(3, 3600), events=ev), None, None), NOW)
+    assert patch["status"]["phase"] != "Dismissed"
+
+
+def test_probe_restart_loop_dismissed_when_quiet():
+    patch: dict = {}
+    evidence.handle_collect(_probe_incident(3), patch, (FakeCore(_probe_pod(3, 3600)), None, None), NOW)
     assert patch["status"]["phase"] == "Dismissed"
 
 

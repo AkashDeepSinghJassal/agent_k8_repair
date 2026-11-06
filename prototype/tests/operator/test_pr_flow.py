@@ -508,8 +508,13 @@ def test_workload_recovered_false_while_probe_restarts_increase():
     apps = SimpleNamespace(read_namespaced_deployment=lambda n, ns: d)
 
     def core(count):
-        pod = {"status": {"containerStatuses": [{"name": "api", "restartCount": count}]}}
-        return SimpleNamespace(read_namespaced_pod=lambda n, ns: pod)
+        from datetime import UTC, datetime, timedelta
 
-    assert evidence.workload_recovered(inc, apps, core(4)) is None
+        fin = (datetime.now(UTC) - timedelta(seconds=ago)).isoformat()
+        pod = {"status": {"containerStatuses": [{"name": "api", "restartCount": count, "lastState": {"terminated": {"finishedAt": fin}}}]}}
+        return SimpleNamespace(read_namespaced_pod=lambda n, ns: pod, list_namespaced_event=lambda ns, **k: {"items": []})
+
+    ago = 40  # count unchanged, but terminated 40 s ago
+    assert evidence.workload_recovered(inc, apps, core(3)) is None
+    ago = 3600
     assert evidence.workload_recovered(inc, apps, core(3)) == "recovered before analysis"
