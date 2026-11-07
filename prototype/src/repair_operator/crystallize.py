@@ -392,7 +392,7 @@ def learn_event(incident: str, namespace: str, action: str, pb: Playbook | None,
 
 
 def maybe_promote(pb: Playbook, store: PlaybookStore, incident: str = "", namespace: str = "",
-                  settings: Settings | None = None) -> str | None:
+                  settings: Settings | None = None, note: str = "") -> str | None:
     """Promote one level when the evidence is there. Returns the new state or None."""
     s = settings or get_settings()
     streak = pb.meta.get("streak", 0)
@@ -408,6 +408,8 @@ def maybe_promote(pb: Playbook, store: PlaybookStore, incident: str = "", namesp
         reason = f"{streak} verified hybrid runs where the LLM's edit equalled the extract rules' edit"
     if new is None:
         return None
+    if note:
+        reason = f"{reason}; {note}"
     frm = pb.state
     pb.state = new
     pb.meta["streak"] = 0
@@ -448,9 +450,21 @@ def _load_trace(name: str, attempt: int, settings: Settings) -> dict | None:
         return None
 
 
-def _record_sequence(pb: Playbook, fresh: Playbook | None) -> None:
+def is_consistent(pb: Playbook, fresh: Playbook | None, trace: list[dict]) -> bool:
+    """Essential-path consistency (V4_CONTRACT.md section 8): the run's trace contains the playbook's essential steps
+    (multiset containment of its pruned ``action_sequence``, order and extra exploratory calls ignored) and the run's
+    edit, templated the same way, equals the playbook's ``edits_template`` (and file)."""
+    if fresh is None:
+        return False
+    have = Counter(c["tool"] for c in kept_calls(trace))
+    if Counter(pb.action_sequence) - have:
+        return False
+    return fresh.edits_template == pb.edits_template and fresh.file_template == pb.file_template
+
+
+def _record_sequence(pb: Playbook, fresh: Playbook | None, trace: list[dict] | None = None) -> None:
     pb.meta["seen"] = pb.meta.get("seen", 1) + 1
-    if fresh is not None and fresh.action_sequence == pb.action_sequence and fresh.edits_template == pb.edits_template:
+    if is_consistent(pb, fresh, trace or []):
         pb.meta["same"] = pb.meta.get("same", 1) + 1
     pb.consistency = round(pb.meta["same"] / pb.meta["seen"], 4)
 
@@ -541,7 +555,7 @@ def learn_from_incident(
             return done("captured", "new playbook")
         pb.runs["t3_ok"] += 1
         pb.meta["streak"] = pb.meta.get("streak", 0) + 1
-        _record_sequence(pb, fresh)
+        _record_sequence(pb, fresh, stored["trace"])
         push_history(pb, "observed", pb.state, pb.state, f"consistency {pb.consistency:.2f}", name)
         store.upsert(pb)
         learn_event(name, ns, "observed", pb, f"consistency {pb.consistency:.2f} over {pb.meta['seen']} runs", tier="T3")

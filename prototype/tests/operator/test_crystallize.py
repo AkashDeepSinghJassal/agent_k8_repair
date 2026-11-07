@@ -414,3 +414,18 @@ async def test_t1_already_fixed_file_raises_already_fixed_not_tier_error():
     mcp.call = call
     with pytest.raises(AlreadyFixed):
         await t1.run(pb, {**SEED, "name": "api-9z8-qwert"}, mcp, Tracer())
+
+
+def test_consistency_uses_essential_path_not_raw_sequence():
+    """Extra exploratory calls do not count against a run; a different edit does."""
+    prop = {"file": FILE, "edits": [EDIT], "failure_class": "CONFIG_ERROR", "root_cause": "x"}
+    pb = crystallize.capture(f4_trace(), prop, SEED, signature=SIG)
+    noisy = [{"step": 0, "tool": "k8s_describe_pod", "args": {"namespace": NS, "pod": "api-7d9-xk2lm"}, "result": "Events: ..."},
+             {"step": 0, "tool": "git_list", "args": {"path": "deploy"}, "result": "[]"}, *f4_trace()]
+    fresh = crystallize.capture(noisy, prop, SEED, signature=SIG)
+    assert fresh.action_sequence != pb.action_sequence  # raw comparison would have said "different"
+    assert crystallize.is_consistent(pb, fresh, noisy)
+    other = {**prop, "edits": [{"find": "  LOG_LEVEL: info", "replace": "  LOG_LEVEL: debug"}]}
+    assert not crystallize.is_consistent(pb, crystallize.capture(noisy, other, SEED, signature=SIG), noisy)
+    missing = [t for t in f4_trace() if t["tool"] != "git_diff"]
+    assert not crystallize.is_consistent(pb, crystallize.capture(missing, prop, SEED, signature=SIG), missing)
