@@ -346,3 +346,21 @@ Covers Runs 1 to 7 in this file. Counts, averages, tier usage and detection-to-p
 See the cleanup line after `stop_demo.sh` below.
 - Demo stopped with `./scripts/stop_demo.sh` (operator pid 51442 and dashboard pid 51443 stopped; no kopf or uvicorn processes remain). `active-faults.json` = `{}`, no fault injected. Pods Running: api 1/1, frontend, redis, worker (demo) and api-b 1/1 (demo-b). Run 6 incidents all deleted; pre-existing Healed incidents `ri-2c6b41c60b-2`, `ri-6d7ca9f087`, `ri-ef9d6f8d30` left in place. No background jobs remain. Playbooks: `pb-1bf9` (F4) T1, `pb-e4db` (F5) T3.
 - After Run 7: same state, with no fault injected, pods Running and no operator or uvicorn process (see the Run 7 cleanup state above).
+
+## Run 8: promotion demo with human merges (F4, 2026-11-06 to 2026-11-09)
+
+Normal mode (not shadow), hybrid analyzer, Claude CLI, thresholds T3→T2 after 2, T2→T1 after 2. The F4 playbook was deleted first so it was learned from scratch. Every PR was merged unchanged by the student; every incident ended Healed after Argo sync and the verify window.
+
+| Round | Incident | PR | Tier | Tool calls | Tokens | Cost | Detect → proposal | Learn |
+|---|---|---|---|---|---|---|---|---|
+| 1 | ri-ef9d6f8d30-16 | #29 | T3 | 9 | 62,771 | $0.066 | 35.3 s | captured pb-1bf9 |
+| 2 | ri-ef9d6f8d30-17 | #30 | T3 | 11 | 68,059 | $0.075 | 55.0 s | observed; promoted T3 → T2 (after consistency fix, see below) |
+| 3 | ri-ef9d6f8d30-18 | #31 | T2 | 4 | 9,759 | $0.032 | 26.8 s | observed (LLM edit == rule edit) |
+| 4 | ri-ef9d6f8d30-19 | #32 | T2 | 4 | 9,743 | $0.032 | 24.3 s | observed; promoted T2 → T1 |
+| 5 | ri-ef9d6f8d30-20 | #33 | T1 | 4 | 0 | $0 | 19.2 s | observed T1 heal |
+
+Final playbook pb-1bf9: state T1, runs t3_ok 2, t2_ok 2 (t2_match 2), t1_ok 1, fail 0, edited 0, rejected 0.
+
+Finding: after round 2 the playbook was not promoted because consistency was 0.5. Both agent runs made the identical edit and covered the same essential evidence path (logs, git log, read, diff), but round 2 made extra exploratory calls. Consistency is now measured on the essential evidence path plus the edit (commit 80648b9); the two runs were re-evaluated with `scripts/recompute_playbook.py`, which promoted the playbook through the normal `maybe_promote`. Agent trajectories are noisy; a crystallization criterion based on exact tool order would rarely promote.
+
+Cost per heal fell from about $0.07 (T3) to $0.032 (T2) to $0 (T1), and detection-to-proposal time from 35–55 s to 19 s.
