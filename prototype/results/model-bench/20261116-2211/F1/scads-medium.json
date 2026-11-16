@@ -1,0 +1,131 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/api.yaml",
+    "edits": [
+      {
+        "find": "      memory: 24Mi",
+        "replace": "      memory: 96Mi"
+      },
+      {
+        "find": "      memory: 32Mi",
+        "replace": "      memory: 128Mi"
+      }
+    ],
+    "root_cause": "f0dd2dd",
+    "failure_class": "OOM_KILLED",
+    "confidence": 0.9,
+    "rationale": "The OOM_KILLED failure class indicates that the container ran out of memory. The recent commit f0dd2dd reduced the memory limits, which likely caused the crash. Restoring the previous memory limits should fix the issue.",
+    "verify": "The pod should be running and the container should not be crashing due to OOM.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "api-7bf95bb8b8-6q9lh"
+      },
+      "result_preview": "{\n  \"name\": \"api-7bf95bb8b8-6q9lh\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-7bf95bb8b8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers...",
+      "result": "{\n  \"name\": \"api-7bf95bb8b8-6q9lh\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-7bf95bb8b8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"32Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"24Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-7bf95bb8b8-6q9lh_demo(6f66bfa7-cdce-4e60-970d-63294332f962)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://69d29b470420f76f355264878fbfc677d0ea0e688a8954ca1ef031d51ca80732\",\n        \"exitCode\": 137,\n        \"finishedAt\": \"2026-11-16T21:13:49+00:00\",\n        \"reason\": \"OOMKilled\",\n        \"startedAt\": \"2026-11-16T21:13:49+00:00\"\n      }\n    }\n  ]\n}",
+      "ms": 632,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_logs",
+      "args": {
+        "namespace": "demo",
+        "pod": "api-7bf95bb8b8-6q9lh",
+        "previous": "true"
+      },
+      "result_preview": "(no log output)",
+      "result": "(no log output)",
+      "ms": 22,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1266,
+      "server": "git"
+    },
+    {
+      "step": 4,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.p...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n",
+      "ms": 354,
+      "server": "git"
+    },
+    {
+      "step": 5,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"f0dd2dd176f2d80046be80a580234131cce3bad0\",\n  \"date\": \"2026-11-16T21:13:36+00:00\",\n  \"message\": \"deploy(api): adjust resource limits\"\n}\n{\n  \"sha\": \"34666cb3a199609de1e224063f161e686d46ae6c\",\n  \"date\": \"2026-11-16T21:03:51+00:00\",\n  \"message\": \"fault(F26): revert compound - OOM limit plus wrong liveness path\"\n}\n{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c2...",
+      "result": "{\n  \"sha\": \"f0dd2dd176f2d80046be80a580234131cce3bad0\",\n  \"date\": \"2026-11-16T21:13:36+00:00\",\n  \"message\": \"deploy(api): adjust resource limits\"\n}\n{\n  \"sha\": \"34666cb3a199609de1e224063f161e686d46ae6c\",\n  \"date\": \"2026-11-16T21:03:51+00:00\",\n  \"message\": \"fault(F26): revert compound - OOM limit plus wrong liveness path\"\n}\n{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c20dfcf61b23bffc3\",\n  \"date\": \"2026-11-16T20:52:49+00:00\",\n  \"message\": \"fault(F21): revert env var shadowing (empty DB_URL overrides the ConfigMap)\"\n}\n{\n  \"sha\": \"ac2d38ae77c4d2490d9c57f88f46b1203d83c56d\",\n  \"date\": \"2026-11-16T20:51:01+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}",
+      "ms": 339,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/api.yaml",
+        "sha": "f0dd2dd176f2d80046be80a580234131cce3bad0"
+      },
+      "result_preview": "commit f0dd2dd176f2d80046be80a580234131cce3bad0\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -48,10 +48,10 @@ spec:\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limits:\n-              memory: 128Mi\n+              memory: 32Mi\n               cpu: 500m\n       volumes:\n         - name: code",
+      "result": "commit f0dd2dd176f2d80046be80a580234131cce3bad0\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -48,10 +48,10 @@ spec:\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limits:\n-              memory: 128Mi\n+              memory: 32Mi\n               cpu: 500m\n       volumes:\n         - name: code",
+      "ms": 551,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "propose_patch",
+      "args": {
+        "file": "deploy/demo/api.yaml",
+        "edits": "[{\"find\": \"      memory: 24Mi\", \"replace\": \"      memory: 96Mi\"}, {\"find\": \"      memory: 32Mi\", \"replace\": \"      memory: 128Mi\"}]",
+        "root_cause": "f0dd2dd",
+        "failure_class": "OOM_KILLED",
+        "confidence": "0.9",
+        "rationale": "The OOM_KILLED failure class indicates that the container ran out of memory. The recent commit f0dd2dd reduced the memory limits, which likely caused the crash. Restoring the previous memory limits should fix the issue.",
+        "verify": "The pod should be running and the container should not be crashing due to OOM.",
+        "repo": ""
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 23,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"api-7bf95bb8b8-6q9lh\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-7bf95bb8b8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"32Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"24Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-7bf95bb8b8-6q9lh_demo(6f66bfa7-cdce-4e60-970d-63294332f962)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://69d29b470420f76f355264878fbfc677d0ea0e688a8954ca1ef031d51ca80732\",\n        \"exitCode\": 137,\n        \"finishedAt\": \"2026-11-16T21:13:49+00:00\",\n        \"reason\": \"OOMKilled\",\n        \"startedAt\": \"2026-11-16T21:13:49+00:00\"\n      }\n    }\n  ]\n}\n(no log output)\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n\n{\n  \"sha\": \"f0dd2dd176f2d80046be80a580234131cce3bad0\",\n  \"date\": \"2026-11-16T21:13:36+00:00\",\n  \"message\": \"deploy(api): adjust resource limits\"\n}\n{\n  \"sha\": \"34666cb3a199609de1e224063f161e686d46ae6c\",\n  \"date\": \"2026-11-16T21:03:51+00:00\",\n  \"message\": \"fault(F26): revert compound - OOM limit plus wrong liveness path\"\n}\n{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c20dfcf61b23bffc3\",\n  \"date\": \"2026-11-16T20:52:49+00:00\",\n  \"message\": \"fault(F21): revert env var shadowing (empty DB_URL overrides the ConfigMap)\"\n}\n{\n  \"sha\": \"ac2d38ae77c4d2490d9c57f88f46b1203d83c56d\",\n  \"date\": \"2026-11-16T20:51:01+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\ncommit f0dd2dd176f2d80046be80a580234131cce3bad0\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -48,10 +48,10 @@ spec:\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limits:\n-              memory: 128Mi\n+              memory: 32Mi\n               cpu: 500m\n       volumes:\n         - name: code\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/api.yaml"
+  ],
+  "usage": {
+    "provider": "scads-medium",
+    "model": "meta-llama/Llama-3.3-70B-Instruct",
+    "steps": 7,
+    "tool_calls": 7,
+    "input_tokens": 29752,
+    "output_tokens": 374,
+    "cost_usd": 0,
+    "latency_ms": 17111
+  },
+  "error": "",
+  "provider": "scads-medium",
+  "model": "meta-llama/Llama-3.3-70B-Instruct",
+  "latency_ms": 17111
+}

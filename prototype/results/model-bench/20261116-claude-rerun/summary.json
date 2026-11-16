@@ -1,0 +1,85 @@
+{
+  "providers": [
+    "claude-cli"
+  ],
+  "faults": {
+    "F1": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 54164,
+          "output_tokens": 1261,
+          "latency_ms": 14979,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "              memory: 24Mi\n",
+              "replace": "              memory: 96Mi\n"
+            },
+            {
+              "find": "              memory: 32Mi\n",
+              "replace": "              memory: 128Mi\n"
+            }
+          ],
+          "root_cause": "Commit 62e722b (\"adjust resource limits\") lowered api memory request/limit from 96Mi/128Mi to 24Mi/32Mi, so the container is OOMKilled (exit 137) and crash-loops."
+        }
+      },
+      "pod": "api-696cc5d6bf-bxr4w",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F5": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 55131,
+          "output_tokens": 1203,
+          "latency_ms": 14325,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "/app/worker.pyy",
+              "replace": "/app/worker.py"
+            }
+          ],
+          "root_cause": "Commit 64ae099 (\"update worker.yaml\") introduced a typo in the worker command: /app/worker.pyy. The worker-code ConfigMap only provides worker.py, so python exits with code 2."
+        }
+      },
+      "pod": "worker-584d5b844c-5rzxm",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F8": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 75331,
+          "output_tokens": 1955,
+          "latency_ms": 22949,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code",
+              "replace": "data:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code"
+            }
+          ],
+          "root_cause": "Commit 66bf6cf removed DB_URL from the api-config ConfigMap, so app.py exits 1 with \"DB_URL not set\" and the pod crash-loops."
+        }
+      },
+      "pod": "api-684f877f44-f8cz9",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    }
+  },
+  "stopped": {},
+  "unavailable": {}
+}

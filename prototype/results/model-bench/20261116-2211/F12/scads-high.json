@@ -1,0 +1,204 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo-b/configmaps.yaml",
+    "edits": [
+      {
+        "find": "metadata:\n  name: api-b-config-v2\n  namespace: demo-b",
+        "replace": "metadata:\n  name: api-b-config\n  namespace: demo-b"
+      }
+    ],
+    "root_cause": "Commit 210ea89b renamed ConfigMap api-b-config to api-b-config-v2 in deploy/demo-b/configmaps.yaml while the api-b Deployment still references api-b-config via envFrom, causing CreateContainerConfigError (configmap \"api-b-config\" not found).",
+    "failure_class": "CONFIG_ERROR",
+    "confidence": 0.99,
+    "rationale": "Pod api-b-567bd7b5d9-xbln8 is stuck in CreateContainerConfigError because the Deployment's envFrom references configMapRef name \"api-b-config\" (deploy/demo-b/api-b.yaml), but no such ConfigMap exists in demo-b \u2014 only api-b-config-v2 and api-b-code. Commit 210ea89b510e484f492c1971c8b4514af2e46b54 renamed the ConfigMap from api-b-config to api-b-config-v2 without updating the Deployment, breaking the pod. Renaming the ConfigMap back to api-b-config restores the referenced name (matching the last-known-good state restored by earlier revert commits like d2bbad38) with a minimal one-line edit.",
+    "verify": "After Argo CD syncs, ConfigMap api-b-config exists in demo-b, pod api-b gets created (no CreateContainerConfigError), reaches Running/Ready, and the api-b Service has healthy endpoints.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo-b",
+        "pod": "api-b-567bd7b5d9-xbln8"
+      },
+      "result_preview": "{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-b-567bd7b5d9\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"contai...",
+      "result": "{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-b-567bd7b5d9\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api-b]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api-b]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api-b\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"128Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"96Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"configmap \\\"api-b-config\\\" not found\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 329,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "name": "api-b-567bd7b5d9-xbln8",
+        "namespace": "demo-b"
+      },
+      "result_preview": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Error: configmap \\\"api-b-config\\\" not found\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"rea...",
+      "result": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Error: configmap \\\"api-b-config\\\" not found\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Successfully assigned demo-b/api-b-567bd7b5d9-xbln8 to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:21:23+00:00\"\n}",
+      "ms": 15,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "pods",
+        "namespace": "demo-b"
+      },
+      "result_preview": "{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"status\": \"Pending ready=0/1 restarts=0 waiting=['CreateContainerConfigError']\"\n}\n{\n  \"name\": \"api-b-586d888c9b-tpv4p\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}",
+      "result": "{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"status\": \"Pending ready=0/1 restarts=0 waiting=['CreateContainerConfigError']\"\n}\n{\n  \"name\": \"api-b-586d888c9b-tpv4p\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}",
+      "ms": 13,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "configmaps",
+        "namespace": "demo-b"
+      },
+      "result_preview": "{\n  \"name\": \"api-b-code\",\n  \"status\": \"keys=['app.py']\"\n}\n{\n  \"name\": \"api-b-config-v2\",\n  \"status\": \"keys=['DB_URL', 'LOG_LEVEL']\"\n}\n{\n  \"name\": \"kube-root-ca.crt\",\n  \"status\": \"keys=['ca.crt']\"\n}",
+      "result": "{\n  \"name\": \"api-b-code\",\n  \"status\": \"keys=['app.py']\"\n}\n{\n  \"name\": \"api-b-config-v2\",\n  \"status\": \"keys=['DB_URL', 'LOG_LEVEL']\"\n}\n{\n  \"name\": \"kube-root-ca.crt\",\n  \"status\": \"keys=['ca.crt']\"\n}",
+      "ms": 24,
+      "server": "k8s"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo-b"
+      },
+      "result_preview": "{\n  \"name\": \"api-b\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "result": "{\n  \"name\": \"api-b\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "ms": 102,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1099,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo-b/api-b.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api-b\n  namespace: demo-b\n  labels:\n    app: api-b\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo-b/api-b.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api-b\n  template:\n    metadata:\n      labels:\n        app: api-b\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api-b\n          image: python:3.12-alpine\n          command: [\"pyth...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api-b\n  namespace: demo-b\n  labels:\n    app: api-b\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo-b/api-b.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api-b\n  template:\n    metadata:\n      labels:\n        app: api-b\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api-b\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-b-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-b-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api-b\n  namespace: demo-b\n  labels:\n    app: api-b\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo-b/api-b.yaml\nspec:\n  selector:\n    app: api-b\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n",
+      "ms": 276,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo-b/configmaps.yaml"
+      },
+      "result_preview": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-config-v2\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis.demo.svc:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-code\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = o...",
+      "result": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-config-v2\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis.demo.svc:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-code\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n",
+      "ms": 564,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_log",
+      "args": {
+        "limit": 10,
+        "path": "deploy/demo-b/configmaps.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"210ea89b510e484f492c1971c8b4514af2e46b54\",\n  \"date\": \"2026-11-16T21:21:17+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"d2bbad384618d16be6eb2ffc3c53d0546d956f9b\",\n  \"date\": \"2026-11-16T20:41:50+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"dee8ce33d364a421b6b3030c34c1115491ab19e4\",\n  \"date\": \"2026-11-16T20:40:02+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"835d9b8939020c22435...",
+      "result": "{\n  \"sha\": \"210ea89b510e484f492c1971c8b4514af2e46b54\",\n  \"date\": \"2026-11-16T21:21:17+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"d2bbad384618d16be6eb2ffc3c53d0546d956f9b\",\n  \"date\": \"2026-11-16T20:41:50+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"dee8ce33d364a421b6b3030c34c1115491ab19e4\",\n  \"date\": \"2026-11-16T20:40:02+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"835d9b8939020c22435f570282faa39e979780ec\",\n  \"date\": \"2026-11-06T11:44:23+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"7360e61bb284ce9aa24cef0b598b086187603587\",\n  \"date\": \"2026-11-06T11:43:21+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"88b28ce2b1971d1ce88613cf813c79e207d9d00e\",\n  \"date\": \"2026-11-06T10:46:31+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"7423fb58c243822915f9ae4cd167adff7d0b4f7d\",\n  \"date\": \"2026-11-06T10:44:55+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"e3a305f27b2229f1a54f681193cc48400af14fb6\",\n  \"date\": \"2026-10-27T20:45:50+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"d7bb8ae38348cc82c41d68d18b8a56c57f8d31ec\",\n  \"date\": \"2026-10-27T20:43:41+00:00\",\n  \"message\": \"fault(F12): api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"c48752dd1f2539a8cd11aad35c08a3ee536aae66\",\n  \"date\": \"2026-10-22T19:05:56+00:00\",\n  \"message\": \"Initial demo app: multi-service app, network policies, release pipeline\"\n}",
+      "ms": 328,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "git_log",
+      "args": {
+        "limit": 10,
+        "path": "deploy/demo-b/api-b.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"cedad233e330706813d14c7317c4f03b27019e4e\",\n  \"date\": \"2026-11-16T21:18:28+00:00\",\n  \"message\": \"fault(F9): revert memory limit too low in demo-b\"\n}\n{\n  \"sha\": \"3012ed958ccd4f5fc3ce7f740d8f6ec94faf35b5\",\n  \"date\": \"2026-11-16T21:17:42+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"ce2880a1e0f2dce41ca5189644a96482bc147ee9\",\n  \"date\": \"2026-11-16T20:57:08+00:00\",\n  \"message\": \"fault(F23): revert private image without pull secret\"\n}\n{\n  \"sha\": \"2f39726557d71f27a5ba...",
+      "result": "{\n  \"sha\": \"cedad233e330706813d14c7317c4f03b27019e4e\",\n  \"date\": \"2026-11-16T21:18:28+00:00\",\n  \"message\": \"fault(F9): revert memory limit too low in demo-b\"\n}\n{\n  \"sha\": \"3012ed958ccd4f5fc3ce7f740d8f6ec94faf35b5\",\n  \"date\": \"2026-11-16T21:17:42+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"ce2880a1e0f2dce41ca5189644a96482bc147ee9\",\n  \"date\": \"2026-11-16T20:57:08+00:00\",\n  \"message\": \"fault(F23): revert private image without pull secret\"\n}\n{\n  \"sha\": \"2f39726557d71f27a5ba85b6d2e39bae0f74b3f2\",\n  \"date\": \"2026-11-16T20:55:20+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"372eda64ac40b961dde37859f9e02927c86e2bbe\",\n  \"date\": \"2026-11-16T20:35:32+00:00\",\n  \"message\": \"fault(F9): revert memory limit too low in demo-b\"\n}\n{\n  \"sha\": \"ad8ebfa373c9343d4bb8f5ff6cefddcffb9ff6bb\",\n  \"date\": \"2026-11-16T20:33:42+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"a2b6b4f322ffb0f56b29e52b2cd41408d2f5fb08\",\n  \"date\": \"2026-11-06T14:21:49+00:00\",\n  \"message\": \"fault(F13): revert liveness probe on wrong port\"\n}\n{\n  \"sha\": \"c23429cd9538407d6d37571863ef2403ed0e1b12\",\n  \"date\": \"2026-11-06T13:46:07+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"d03db999422293ef5eb7d5dc56c87448d4ddc0ac\",\n  \"date\": \"2026-11-06T13:15:30+00:00\",\n  \"message\": \"fault(F13): revert liveness probe on wrong port\"\n}\n{\n  \"sha\": \"803d77001835b472f82015f0661513e8f53acf6d\",\n  \"date\": \"2026-11-06T13:07:09+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}",
+      "ms": 859,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo-b/configmaps.yaml",
+        "sha": "210ea89b510e484f492c1971c8b4514af2e46b54"
+      },
+      "result_preview": "commit 210ea89b510e484f492c1971c8b4514af2e46b54\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config\n+  name: api-b-config-v2\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"",
+      "result": "commit 210ea89b510e484f492c1971c8b4514af2e46b54\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config\n+  name: api-b-config-v2\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"",
+      "ms": 412,
+      "server": "git"
+    },
+    {
+      "step": 12,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo-b/configmaps.yaml",
+        "sha": "d2bbad384618d16be6eb2ffc3c53d0546d956f9b"
+      },
+      "result_preview": "commit d2bbad384618d16be6eb2ffc3c53d0546d956f9b\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config-v2\n+  name: api-b-config\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"",
+      "result": "commit d2bbad384618d16be6eb2ffc3c53d0546d956f9b\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config-v2\n+  name: api-b-config\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"",
+      "ms": 632,
+      "server": "git"
+    },
+    {
+      "step": 13,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 0.99,
+        "edits": [
+          {
+            "find": "metadata:\n  name: api-b-config-v2\n  namespace: demo-b",
+            "replace": "metadata:\n  name: api-b-config\n  namespace: demo-b"
+          }
+        ],
+        "failure_class": "CONFIG_ERROR",
+        "file": "deploy/demo-b/configmaps.yaml",
+        "rationale": "Pod api-b-567bd7b5d9-xbln8 is stuck in CreateContainerConfigError because the Deployment's envFrom references configMapRef name \"api-b-config\" (deploy/demo-b/api-b.yaml), but no such ConfigMap exists in demo-b \u2014 only api-b-config-v2 and api-b-code. Commit 210ea89b510e484f492c1971c8b4514af2e46b54 renamed the ConfigMap from api-b-config to api-b-config-v2 without updating the Deployment, breaking the pod. Renaming the ConfigMap back to api-b-config restores the referenced name (matching the last-known-good state restored by earlier revert commits like d2bbad38) with a minimal one-line edit.",
+        "root_cause": "Commit 210ea89b renamed ConfigMap api-b-config to api-b-config-v2 in deploy/demo-b/configmaps.yaml while the api-b Deployment still references api-b-config via envFrom, causing CreateContainerConfigError (configmap \"api-b-config\" not found).",
+        "verify": "After Argo CD syncs, ConfigMap api-b-config exists in demo-b, pod api-b gets created (no CreateContainerConfigError), reaches Running/Ready, and the api-b Service has healthy endpoints."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 17,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-b-567bd7b5d9\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api-b]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api-b]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api-b\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"128Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"96Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"configmap \\\"api-b-config\\\" not found\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Error: configmap \\\"api-b-config\\\" not found\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:21:24+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/api-b-567bd7b5d9-xbln8\",\n  \"message\": \"Successfully assigned demo-b/api-b-567bd7b5d9-xbln8 to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:21:23+00:00\"\n}\n{\n  \"name\": \"api-b-567bd7b5d9-xbln8\",\n  \"status\": \"Pending ready=0/1 restarts=0 waiting=['CreateContainerConfigError']\"\n}\n{\n  \"name\": \"api-b-586d888c9b-tpv4p\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"api-b-code\",\n  \"status\": \"keys=['app.py']\"\n}\n{\n  \"name\": \"api-b-config-v2\",\n  \"status\": \"keys=['DB_URL', 'LOG_LEVEL']\"\n}\n{\n  \"name\": \"kube-root-ca.crt\",\n  \"status\": \"keys=['ca.crt']\"\n}\n{\n  \"name\": \"api-b\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api-b\n  namespace: demo-b\n  labels:\n    app: api-b\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo-b/api-b.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api-b\n  template:\n    metadata:\n      labels:\n        app: api-b\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api-b\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-b-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-b-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api-b\n  namespace: demo-b\n  labels:\n    app: api-b\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo-b/api-b.yaml\nspec:\n  selector:\n    app: api-b\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-config-v2\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis.demo.svc:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-b-code\n  namespace: demo-b\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n\n{\n  \"sha\": \"210ea89b510e484f492c1971c8b4514af2e46b54\",\n  \"date\": \"2026-11-16T21:21:17+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"d2bbad384618d16be6eb2ffc3c53d0546d956f9b\",\n  \"date\": \"2026-11-16T20:41:50+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"dee8ce33d364a421b6b3030c34c1115491ab19e4\",\n  \"date\": \"2026-11-16T20:40:02+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"835d9b8939020c22435f570282faa39e979780ec\",\n  \"date\": \"2026-11-06T11:44:23+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"7360e61bb284ce9aa24cef0b598b086187603587\",\n  \"date\": \"2026-11-06T11:43:21+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"88b28ce2b1971d1ce88613cf813c79e207d9d00e\",\n  \"date\": \"2026-11-06T10:46:31+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"7423fb58c243822915f9ae4cd167adff7d0b4f7d\",\n  \"date\": \"2026-11-06T10:44:55+00:00\",\n  \"message\": \"chore(demo-b): update configmaps.yaml\"\n}\n{\n  \"sha\": \"e3a305f27b2229f1a54f681193cc48400af14fb6\",\n  \"date\": \"2026-10-27T20:45:50+00:00\",\n  \"message\": \"fault(F12): revert api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"d7bb8ae38348cc82c41d68d18b8a56c57f8d31ec\",\n  \"date\": \"2026-10-27T20:43:41+00:00\",\n  \"message\": \"fault(F12): api-b-config ConfigMap renamed in demo-b\"\n}\n{\n  \"sha\": \"c48752dd1f2539a8cd11aad35c08a3ee536aae66\",\n  \"date\": \"2026-10-22T19:05:56+00:00\",\n  \"message\": \"Initial demo app: multi-service app, network policies, release pipeline\"\n}\n{\n  \"sha\": \"cedad233e330706813d14c7317c4f03b27019e4e\",\n  \"date\": \"2026-11-16T21:18:28+00:00\",\n  \"message\": \"fault(F9): revert memory limit too low in demo-b\"\n}\n{\n  \"sha\": \"3012ed958ccd4f5fc3ce7f740d8f6ec94faf35b5\",\n  \"date\": \"2026-11-16T21:17:42+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"ce2880a1e0f2dce41ca5189644a96482bc147ee9\",\n  \"date\": \"2026-11-16T20:57:08+00:00\",\n  \"message\": \"fault(F23): revert private image without pull secret\"\n}\n{\n  \"sha\": \"2f39726557d71f27a5ba85b6d2e39bae0f74b3f2\",\n  \"date\": \"2026-11-16T20:55:20+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"372eda64ac40b961dde37859f9e02927c86e2bbe\",\n  \"date\": \"2026-11-16T20:35:32+00:00\",\n  \"message\": \"fault(F9): revert memory limit too low in demo-b\"\n}\n{\n  \"sha\": \"ad8ebfa373c9343d4bb8f5ff6cefddcffb9ff6bb\",\n  \"date\": \"2026-11-16T20:33:42+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"a2b6b4f322ffb0f56b29e52b2cd41408d2f5fb08\",\n  \"date\": \"2026-11-06T14:21:49+00:00\",\n  \"message\": \"fault(F13): revert liveness probe on wrong port\"\n}\n{\n  \"sha\": \"c23429cd9538407d6d37571863ef2403ed0e1b12\",\n  \"date\": \"2026-11-06T13:46:07+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\n{\n  \"sha\": \"d03db999422293ef5eb7d5dc56c87448d4ddc0ac\",\n  \"date\": \"2026-11-06T13:15:30+00:00\",\n  \"message\": \"fault(F13): revert liveness probe on wrong port\"\n}\n{\n  \"sha\": \"803d77001835b472f82015f0661513e8f53acf6d\",\n  \"date\": \"2026-11-06T13:07:09+00:00\",\n  \"message\": \"chore(demo-b): update api-b.yaml\"\n}\ncommit 210ea89b510e484f492c1971c8b4514af2e46b54\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config\n+  name: api-b-config-v2\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\ncommit d2bbad384618d16be6eb2ffc3c53d0546d956f9b\n--- a/deploy/demo-b/configmaps.yaml\n+++ b/deploy/demo-b/configmaps.yaml\n@@ -1,7 +1,7 @@\n apiVersion: v1\n kind: ConfigMap\n metadata:\n-  name: api-b-config-v2\n+  name: api-b-config\n   namespace: demo-b\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo-b/api-b.yaml",
+    "deploy/demo-b/configmaps.yaml"
+  ],
+  "usage": {
+    "provider": "scads-high",
+    "model": "mistralai/Mistral-Large-4",
+    "steps": 6,
+    "tool_calls": 13,
+    "input_tokens": 26955,
+    "output_tokens": 875,
+    "cost_usd": 0,
+    "reasoning_tokens": 208,
+    "latency_ms": 24938
+  },
+  "error": "",
+  "provider": "scads-high",
+  "model": "mistralai/Mistral-Large-4",
+  "latency_ms": 24938
+}

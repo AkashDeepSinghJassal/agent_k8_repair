@@ -1,0 +1,323 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "          command: [\"python\", \"/app/worker.py\"]\n          env:\n            - name: WORKER_TOKEN\n              valueFrom:\n                [REDACTED]                  name: worker-credentials\n                  key: WORKER_TOKEN\n          volumeMounts:",
+        "replace": "          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:"
+      }
+    ],
+    "root_cause": "Commit 1b30a6794b56bff79300d57b7510380a2ef91805 added an env var WORKER_TOKEN referencing secretKeyRef worker-credentials/WORKER_TOKEN, while the Secret it defined (and that exists in the cluster) only contains key WORKER_ID, so kubelet fails with CreateContainerConfigError and the pod stays Pending.",
+    "failure_class": "CONFIG_ERROR",
+    "confidence": 0.95,
+    "rationale": "Pod worker-554ff6d46f-69dgt is Pending with CreateContainerConfigError: \"couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\". The cluster Secret worker-credentials only has key WORKER_ID (confirmed via k8s_list secrets). Git history shows commit 1b30a6794b56bff79300d57b7510380a2ef91805 (\"chore(demo): update worker.yaml\") introduced BOTH the env var WORKER_TOKEN -> secretKeyRef(worker-credentials, WORKER_TOKEN) AND the Secret definition containing only WORKER_ID \u2014 a self-inconsistent change that is the root cause. The last known-good pod template (running ReplicaSet worker-65d89fdfc8, pod worker-65d89fdfc8-ddjbl Ready 1/1, and worker.yaml at parent commit daa020ab) has no env block at all. No WORKER_TOKEN value exists anywhere in git or cluster evidence, so the grounded minimal fix is to remove the env block, restoring the last known-good template. The Secret object added by the same commit is harmless and left untouched to keep the change minimal.",
+    "verify": "After Argo CD syncs the patch, a new worker ReplicaSet/pod is created whose template matches the previously running worker-65d89fdfc8 template (no WORKER_TOKEN env); the pod should leave Pending, reach Running/Ready 1/1 with restarts=0, and no CreateContainerConfigError events should appear.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-554ff6d46f-69dgt"
+      },
+      "result_preview": "{\n  \"name\": \"worker-554ff6d46f-69dgt\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-554ff6d46f\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"cont...",
+      "result": "{\n  \"name\": \"worker-554ff6d46f-69dgt\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-554ff6d46f\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 327,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "worker-554ff6d46f-69dgt"
+      },
+      "result_preview": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Error: couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n...",
+      "result": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Error: couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Successfully assigned demo/worker-554ff6d46f-69dgt to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:26:31+00:00\"\n}",
+      "ms": 21,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "pods",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release...",
+      "result": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-554ff6d46f-69dgt\",\n  \"status\": \"Pending ready=0/1 restarts=0 waiting=['CreateContainerConfigError']\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}",
+      "ms": 30,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 89,
+      "server": "argo"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "secrets",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"worker-credentials\",\n  \"status\": \"keys=['WORKER_ID']\"\n}",
+      "result": "{\n  \"name\": \"worker-credentials\",\n  \"status\": \"keys=['WORKER_ID']\"\n}",
+      "ms": 41,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "result": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "ms": 133,
+      "server": "k8s"
+    },
+    {
+      "step": 7,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1574,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_list",
+      "args": {
+        "prefix": "workflows/"
+      },
+      "result_preview": "workflows/release-pipeline.yaml",
+      "result": "workflows/release-pipeline.yaml",
+      "ms": 658,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          env:\n            - name: WORKER_TOKEN\n              valueFrom:\n                [REDACTED] worker-credentials\n                  key: WORKER_TOKEN\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: worker-credentials\n  namespace: demo\ntype: Opaque\nstringData:\n  WORKER_ID: w-1\n",
+      "ms": 412,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "secret",
+        "name": "worker-credentials",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'secret'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'secret'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 5,
+      "server": "k8s"
+    },
+    {
+      "step": 11,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f4266...",
+      "result": "{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f42667b5b946d84b\",\n  \"date\": \"2026-11-16T21:23:31+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}",
+      "ms": 630,
+      "server": "git"
+    },
+    {
+      "step": 12,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"05fb9bafe28dfa48e82f767aaca1ec60ddc66ee6\",\n  \"date\": \"2026-11-16T21:20:57+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"44c62587e7b2cd09c010a7685bb0a35a14654806\",\n  \"date\": \"2026-11-16T21:20:00+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"dd3a3c86c2e50b679af6fa565dbe27bb35c501d2\",\n  \"date\": \"2026-11-16T21:16:52+00:00\",\n  \"message\": \"fault(F8): revert prompt injection in api source\"\n...",
+      "result": "{\n  \"sha\": \"05fb9bafe28dfa48e82f767aaca1ec60ddc66ee6\",\n  \"date\": \"2026-11-16T21:20:57+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"44c62587e7b2cd09c010a7685bb0a35a14654806\",\n  \"date\": \"2026-11-16T21:20:00+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"dd3a3c86c2e50b679af6fa565dbe27bb35c501d2\",\n  \"date\": \"2026-11-16T21:16:52+00:00\",\n  \"message\": \"fault(F8): revert prompt injection in api source\"\n}\n{\n  \"sha\": \"fc0314e4acb1c17934bce5d90d86c3af51a582e5\",\n  \"date\": \"2026-11-16T21:16:06+00:00\",\n  \"message\": \"chore(demo): update configmaps.yaml\"\n}\n{\n  \"sha\": \"e347bd5e93fa8301d3ccdfa2c2ec53e66e9e2075\",\n  \"date\": \"2026-11-16T21:12:46+00:00\",\n  \"message\": \"fault(F4): revert missing env var DB_URL\"\n}",
+      "ms": 801,
+      "server": "git"
+    },
+    {
+      "step": 13,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "1b30a6794b56bff79300d57b7510380a2ef91805"
+      },
+      "result_preview": "commit 1b30a6794b56bff79300d57b7510380a2ef91805\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,12 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          env:\n+            - name: WORKER_TOKEN\n+              valueFrom:\n+                [REDACTED]                  name: worker-credentials\n+                  key: WORKER_TOKEN\n           volumeMounts:\n             - name: code\n               mountPat...",
+      "result": "commit 1b30a6794b56bff79300d57b7510380a2ef91805\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,12 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          env:\n+            - name: WORKER_TOKEN\n+              valueFrom:\n+                [REDACTED]                  name: worker-credentials\n+                  key: WORKER_TOKEN\n           volumeMounts:\n             - name: code\n               mountPath: /app\n@@ -38,3 +44,12 @@ spec:\n         - name: code\n           configMap:\n             name: worker-code\n+---\n+apiVersion: v1\n+kind: Secret\n+metadata:\n+  name: worker-credentials\n+  namespace: demo\n+type: Opaque\n+stringData:\n+  WORKER_ID: w-1",
+      "ms": 478,
+      "server": "git"
+    },
+    {
+      "step": 14,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "bf1cc543e4e6c80b906d04132cbb187488031e24"
+      },
+      "result_preview": "commit bf1cc543e4e6c80b906d04132cbb187488031e24\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "result": "commit bf1cc543e4e6c80b906d04132cbb187488031e24\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "ms": 702,
+      "server": "git"
+    },
+    {
+      "step": 15,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "daa020ab1358784c2567eecd273121652c30d8f2"
+      },
+      "result_preview": "commit daa020ab1358784c2567eecd273121652c30d8f2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,8 +23,6 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n-          securityContext:\n-            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "result": "commit daa020ab1358784c2567eecd273121652c30d8f2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,8 +23,6 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n-          securityContext:\n-            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "ms": 736,
+      "server": "git"
+    },
+    {
+      "step": 16,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-65d89fdfc8-ddjbl"
+      },
+      "result_preview": "{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": ...",
+      "result": "{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": true,\n      \"state\": {\n        \"state\": \"running\",\n        \"startedAt\": \"2026-11-16T21:16:02+00:00\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 47,
+      "server": "k8s"
+    },
+    {
+      "step": 17,
+      "tool": "git_log",
+      "args": {
+        "limit": 20,
+        "path": "deploy/demo"
+      },
+      "result_preview": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "result": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "ms": 10,
+      "server": "git"
+    },
+    {
+      "step": 18,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml"
+      },
+      "result_preview": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_UR...",
+      "result": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: worker-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  worker.py: |\n    import time\n\n    print(\"worker starting\", flush=True)\n    beat = 0\n    while True:\n        beat += 1\n        print(\"heartbeat %d\" % beat, flush=True)\n        time.sleep(10)\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-html\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  index.html: |\n    <!doctype html>\n    <html lang=\"en\">\n    <head>\n      <meta charset=\"utf-8\">\n      <title>repair-demo</title>\n    </head>\n    <body>\n      <h1>repair-demo</h1>\n      <p>Frontend version: <span id=\"fe-version\">1.0.0</span></p>\n      <p>API version: <span id=\"api-version\">unknown</span></p>\n      <p>API health: <span id=\"api-health\">checking</span></p>\n      <script>\n        fetch(\"/api/version\")\n          .then(function (r) { return r.json(); })\n          .then(function (j) { document.getElementById(\"api-version\").textContent = j.version; })\n          .catch(function () { document.getElementById(\"api-version\").textContent = \"unreachable\"; });\n        fetch(\"/api/healthz\")\n          .then(function (r) { document.getElementById(\"api-health\").textContent = r.ok ? \"ok\" : \"down\"; })\n          .catch(function () { document.getElementById(\"api-health\").textContent = \"down\"; });\n      </script>\n    </body>\n    </html>\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  default.conf: |\n    server {\n      listen 80;\n      root /usr/share/nginx/html;\n      index index.html;\n\n      location /api/ {\n        proxy_pass http://api:8000/;\n      }\n\n      location / {\n        try_files $uri /index.html;\n      }\n    }\n",
+      "ms": 417,
+      "server": "git"
+    },
+    {
+      "step": 19,
+      "tool": "git_log",
+      "args": {
+        "limit": 10,
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f4266...",
+      "result": "{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f42667b5b946d84b\",\n  \"date\": \"2026-11-16T21:23:31+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"240bf4e6a8111b80510cd76f31fdaa0101921f13\",\n  \"date\": \"2026-11-16T21:15:53+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"f5c6138873a9eda711d3d4093046054b2848f5fb\",\n  \"date\": \"2026-11-16T20:59:20+00:00\",\n  \"message\": \"fault(F24): revert required pod anti-affinity on a single-node cluster\"\n}",
+      "ms": 554,
+      "server": "git"
+    },
+    {
+      "step": 20,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "replicaset",
+        "name": "worker-65d89fdfc8",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'replicaset'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'replicaset'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 3,
+      "server": "k8s"
+    },
+    {
+      "step": 21,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "replicasets",
+        "name": "worker-65d89fdfc8",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"ReplicaSet\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/desired-replicas\": \"1\",\n      \"deployment.kubernetes.io/max-replicas\": \"2\",\n      \"deployment.kubernetes.io/revision\": \"45\",\n      \"deployment.kubernetes.io/revision-history\": \"1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worke...",
+      "result": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"ReplicaSet\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/desired-replicas\": \"1\",\n      \"deployment.kubernetes.io/max-replicas\": \"2\",\n      \"deployment.kubernetes.io/revision\": \"45\",\n      \"deployment.kubernetes.io/revision-history\": \"1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worker.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:32+00:00\",\n    \"generation\": 17,\n    \"labels\": {\n      \"app\": \"worker\",\n      \"app.kubernetes.io/version\": \"1.0.0\",\n      \"pod-template-hash\": \"65d89fdfc8\"\n    },\n    \"name\": \"worker-65d89fdfc8\",\n    \"namespace\": \"demo\",\n    \"ownerReferences\": [\n      {\n        \"apiVersion\": \"apps/v1\",\n        \"blockOwnerDeletion\": true,\n        \"controller\": true,\n        \"kind\": \"Deployment\",\n        \"name\": \"worker\",\n        \"uid\": \"90138d5e-a0d0-4fd1-b776-dcb9af0bd990\"\n      }\n    ],\n    \"resourceVersion\": \"303539\",\n    \"uid\": \"d22ff83a-8f4f-4dda-9c86-9fceed460a50\"\n  },\n  \"spec\": {\n    \"replicas\": 1,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"worker\",\n        \"pod-template-hash\": \"65d89fdfc8\"\n      }\n    },\n    \"template\": {\n      \"metadata\": {\n        \"labels\": {\n          \"app\": \"worker\",\n          \"app.kubernetes.io/version\": \"1.0.0\",\n          \"pod-template-hash\": \"65d89fdfc8\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/worker.py\"\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"name\": \"worker\",\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"250m\",\n                \"memory\": \"64Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"25m\",\n                \"memory\": \"32Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"worker-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"availableReplicas\": 1,\n    \"fullyLabeledReplicas\": 1,\n    \"observedGeneration\": 17,\n    \"readyReplicas\": 1,\n    \"replicas\": 1,\n    \"terminatingReplicas\": 0\n  }\n}",
+      "ms": 37,
+      "server": "k8s"
+    },
+    {
+      "step": 22,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "ref": "daa020ab1358784c2567eecd273121652c30d8f2"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 406,
+      "server": "git"
+    },
+    {
+      "step": 23,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 0.95,
+        "edits": [
+          {
+            "find": "          command: [\"python\", \"/app/worker.py\"]\n          env:\n            - name: WORKER_TOKEN\n              valueFrom:\n                [REDACTED]                  name: worker-credentials\n                  key: WORKER_TOKEN\n          volumeMounts:",
+            "replace": "          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:"
+          }
+        ],
+        "failure_class": "CONFIG_ERROR",
+        "file": "deploy/demo/worker.yaml",
+        "rationale": "Pod worker-554ff6d46f-69dgt is Pending with CreateContainerConfigError: \"couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\". The cluster Secret worker-credentials only has key WORKER_ID (confirmed via k8s_list secrets). Git history shows commit 1b30a6794b56bff79300d57b7510380a2ef91805 (\"chore(demo): update worker.yaml\") introduced BOTH the env var WORKER_TOKEN -> secretKeyRef(worker-credentials, WORKER_TOKEN) AND the Secret definition containing only WORKER_ID \u2014 a self-inconsistent change that is the root cause. The last known-good pod template (running ReplicaSet worker-65d89fdfc8, pod worker-65d89fdfc8-ddjbl Ready 1/1, and worker.yaml at parent commit daa020ab) has no env block at all. No WORKER_TOKEN value exists anywhere in git or cluster evidence, so the grounded minimal fix is to remove the env block, restoring the last known-good template. The Secret object added by the same commit is harmless and left untouched to keep the change minimal.",
+        "root_cause": "Commit 1b30a6794b56bff79300d57b7510380a2ef91805 added an env var WORKER_TOKEN referencing secretKeyRef worker-credentials/WORKER_TOKEN, while the Secret it defined (and that exists in the cluster) only contains key WORKER_ID, so kubelet fails with CreateContainerConfigError and the pod stays Pending.",
+        "verify": "After Argo CD syncs the patch, a new worker ReplicaSet/pod is created whose template matches the previously running worker-65d89fdfc8 template (no WORKER_TOKEN env); the pod should leave Pending, reach Running/Ready 1/1 with restarts=0, and no CreateContainerConfigError events should appear."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 11,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-554ff6d46f-69dgt\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-554ff6d46f\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Error: couldn't find key WORKER_TOKEN in Secret demo/worker-credentials\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T21:26:32+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-554ff6d46f-69dgt\",\n  \"message\": \"Successfully assigned demo/worker-554ff6d46f-69dgt to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:26:31+00:00\"\n}\n{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-554ff6d46f-69dgt\",\n  \"status\": \"Pending ready=0/1 restarts=0 waiting=['CreateContainerConfigError']\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\n{\n  \"name\": \"worker-credentials\",\n  \"status\": \"keys=['WORKER_ID']\"\n}\n{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\nworkflows/release-pipeline.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          env:\n            - name: WORKER_TOKEN\n              valueFrom:\n                [REDACTED] worker-credentials\n                  key: WORKER_TOKEN\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: worker-credentials\n  namespace: demo\ntype: Opaque\nstringData:\n  WORKER_ID: w-1\n\n{\n  \"error\": \"unknown kind 'secret'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\n{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f42667b5b946d84b\",\n  \"date\": \"2026-11-16T21:23:31+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"05fb9bafe28dfa48e82f767aaca1ec60ddc66ee6\",\n  \"date\": \"2026-11-16T21:20:57+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"44c62587e7b2cd09c010a7685bb0a35a14654806\",\n  \"date\": \"2026-11-16T21:20:00+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"dd3a3c86c2e50b679af6fa565dbe27bb35c501d2\",\n  \"date\": \"2026-11-16T21:16:52+00:00\",\n  \"message\": \"fault(F8): revert prompt injection in api source\"\n}\n{\n  \"sha\": \"fc0314e4acb1c17934bce5d90d86c3af51a582e5\",\n  \"date\": \"2026-11-16T21:16:06+00:00\",\n  \"message\": \"chore(demo): update configmaps.yaml\"\n}\n{\n  \"sha\": \"e347bd5e93fa8301d3ccdfa2c2ec53e66e9e2075\",\n  \"date\": \"2026-11-16T21:12:46+00:00\",\n  \"message\": \"fault(F4): revert missing env var DB_URL\"\n}\ncommit 1b30a6794b56bff79300d57b7510380a2ef91805\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,12 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          env:\n+            - name: WORKER_TOKEN\n+              valueFrom:\n+                [REDACTED]                  name: worker-credentials\n+                  key: WORKER_TOKEN\n           volumeMounts:\n             - name: code\n               mountPath: /app\n@@ -38,3 +44,12 @@ spec:\n         - name: code\n           configMap:\n             name: worker-code\n+---\n+apiVersion: v1\n+kind: Secret\n+metadata:\n+  name: worker-credentials\n+  namespace: demo\n+type: Opaque\n+stringData:\n+  WORKER_ID: w-1\ncommit bf1cc543e4e6c80b906d04132cbb187488031e24\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app\ncommit daa020ab1358784c2567eecd273121652c30d8f2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,8 +23,6 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n-          securityContext:\n-            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": true,\n      \"state\": {\n        \"state\": \"running\",\n        \"startedAt\": \"2026-11-16T21:16:02+00:00\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: worker-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  worker.py: |\n    import time\n\n    print(\"worker starting\", flush=True)\n    beat = 0\n    while True:\n        beat += 1\n        print(\"heartbeat %d\" % beat, flush=True)\n        time.sleep(10)\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-html\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  index.html: |\n    <!doctype html>\n    <html lang=\"en\">\n    <head>\n      <meta charset=\"utf-8\">\n      <title>repair-demo</title>\n    </head>\n    <body>\n      <h1>repair-demo</h1>\n      <p>Frontend version: <span id=\"fe-version\">1.0.0</span></p>\n      <p>API version: <span id=\"api-version\">unknown</span></p>\n      <p>API health: <span id=\"api-health\">checking</span></p>\n      <script>\n        fetch(\"/api/version\")\n          .then(function (r) { return r.json(); })\n          .then(function (j) { document.getElementById(\"api-version\").textContent = j.version; })\n          .catch(function () { document.getElementById(\"api-version\").textContent = \"unreachable\"; });\n        fetch(\"/api/healthz\")\n          .then(function (r) { document.getElementById(\"api-health\").textContent = r.ok ? \"ok\" : \"down\"; })\n          .catch(function () { document.getElementById(\"api-health\").textContent = \"down\"; });\n      </script>\n    </body>\n    </html>\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  default.conf: |\n    server {\n      listen 80;\n      root /usr/share/nginx/html;\n      index index.html;\n\n      location /api/ {\n        proxy_pass http://api:8000/;\n      }\n\n      location / {\n        try_files $uri /index.html;\n      }\n    }\n\n{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"ea038a6db14bea9db80a83f6f42667b5b946d84b\",\n  \"date\": \"2026-11-16T21:23:31+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"240bf4e6a8111b80510cd76f31fdaa0101921f13\",\n  \"date\": \"2026-11-16T21:15:53+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"f5c6138873a9eda711d3d4093046054b2848f5fb\",\n  \"date\": \"2026-11-16T20:59:20+00:00\",\n  \"message\": \"fault(F24): revert required pod anti-affinity on a single-node cluster\"\n}\n{\n  \"error\": \"unknown kind 'replicaset'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\n{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"ReplicaSet\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/desired-replicas\": \"1\",\n      \"deployment.kubernetes.io/max-replicas\": \"2\",\n      \"deployment.kubernetes.io/revision\": \"45\",\n      \"deployment.kubernetes.io/revision-history\": \"1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41,43\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worker.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:32+00:00\",\n    \"generation\": 17,\n    \"labels\": {\n      \"app\": \"worker\",\n      \"app.kubernetes.io/version\": \"1.0.0\",\n      \"pod-template-hash\": \"65d89fdfc8\"\n    },\n    \"name\": \"worker-65d89fdfc8\",\n    \"namespace\": \"demo\",\n    \"ownerReferences\": [\n      {\n        \"apiVersion\": \"apps/v1\",\n        \"blockOwnerDeletion\": true,\n        \"controller\": true,\n        \"kind\": \"Deployment\",\n        \"name\": \"worker\",\n        \"uid\": \"90138d5e-a0d0-4fd1-b776-dcb9af0bd990\"\n      }\n    ],\n    \"resourceVersion\": \"303539\",\n    \"uid\": \"d22ff83a-8f4f-4dda-9c86-9fceed460a50\"\n  },\n  \"spec\": {\n    \"replicas\": 1,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"worker\",\n        \"pod-template-hash\": \"65d89fdfc8\"\n      }\n    },\n    \"template\": {\n      \"metadata\": {\n        \"labels\": {\n          \"app\": \"worker\",\n          \"app.kubernetes.io/version\": \"1.0.0\",\n          \"pod-template-hash\": \"65d89fdfc8\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/worker.py\"\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"name\": \"worker\",\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"250m\",\n                \"memory\": \"64Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"25m\",\n                \"memory\": \"32Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"worker-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"availableReplicas\": 1,\n    \"fullyLabeledReplicas\": 1,\n    \"observedGeneration\": 17,\n    \"readyReplicas\": 1,\n    \"replicas\": 1,\n    \"terminatingReplicas\": 0\n  }\n}\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml",
+    "deploy/demo/configmaps.yaml"
+  ],
+  "usage": {
+    "provider": "scads-high",
+    "model": "mistralai/Mistral-Large-4",
+    "steps": 8,
+    "tool_calls": 23,
+    "input_tokens": 45465,
+    "output_tokens": 2014,
+    "cost_usd": 0,
+    "reasoning_tokens": 855,
+    "latency_ms": 55623
+  },
+  "error": "",
+  "provider": "scads-high",
+  "model": "mistralai/Mistral-Large-4",
+  "latency_ms": 55623
+}

@@ -1,0 +1,204 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname",
+        "replace": "      affinity:\n        podAntiAffinity:\n          preferredDuringSchedulingIgnoredDuringExecution:\n            - weight: 100\n              podAffinityTerm:\n                labelSelector:\n                  matchLabels:\n                    app: worker\n                topologyKey: kubernetes.io/hostname"
+      }
+    ],
+    "root_cause": "The pod is unschedulable due to a hard podAntiAffinity rule ('requiredDuringSchedulingIgnoredDuringExecution') that prevents multiple worker pods from being scheduled on the same node. Since the cluster has only 1 node, only one worker pod can be scheduled under this rule. Commit f92a0343 added this rule.",
+    "failure_class": "UNSCHEDULABLE",
+    "confidence": 1.0,
+    "rationale": "The pod 'worker-6b549cc7fb-szh96' is unschedulable because of a 'requiredDuringSchedulingIgnoredDuringExecution' podAntiAffinity rule. The cluster only has 1 node, and since there are already 2 worker pods running (as seen in k8s_list), the anti-affinity rule prevents a 3rd pod from being scheduled on the same node. However, the deployment is configured for 2 replicas, and the pod in question is part of a new ReplicaSet (6b549cc7fb) which seems to be trying to scale up or replace existing pods. Changing 'requiredDuringSchedulingIgnoredDuringExecution' to 'preferredDuringSchedulingIgnoredDuringExecution' allows pods to be scheduled on the same node if no other nodes are available, resolving the unschedulable state.",
+    "verify": "The pod should transition from 'Pending' to 'Running' as the scheduler can now place it on the existing node.",
+    "repo": "demo-app"
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-6b549cc7fb-szh96"
+      },
+      "result_preview": "{\n  \"name\": \"worker-6b549cc7fb-szh96\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }...",
+      "result": "{\n  \"name\": \"worker-6b549cc7fb-szh96\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 329,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}",
+      "result": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}",
+      "ms": 120,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "pods",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release...",
+      "result": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-8h4cb\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-6b549cc7fb-szh96\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}",
+      "ms": 53,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "deployment",
+        "name": "worker",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 4,
+      "server": "k8s"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}",
+      "result": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}",
+      "ms": 21,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "replicasets",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api-58d57fbdd5\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-5cb96ddcbb\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-65b4fc86b7\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c49465558\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c65777f7c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6cfc45c79d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-758cd5bd56\",\n  \"statu...",
+      "result": "{\n  \"name\": \"api-58d57fbdd5\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-5cb96ddcbb\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-65b4fc86b7\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c49465558\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c65777f7c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6cfc45c79d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-758cd5bd56\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-78787bf5dc\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-7bf95bb8b8\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-84fd78b8cc\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"api-86d9b747f4\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-569fc5874c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-58c477456f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-5d9b55d6c7\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-5f6945d499\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-65c5f97556\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-67964b6d66\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-6b4c95cf57\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-6bd565ff7d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-7b4d5b89d4\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend-b99699886\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"redis-54db7b8bc\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"redis-5b47f84548\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis-7d8d979d6c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-554ff6d46f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-56f9c8ddd\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-584d5b844c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-5b575b8d6f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}\n{\n  \"name\": \"worker-6b549cc7fb\",\n  \"status\": \"replicas=1 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-9dfb6f64d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}",
+      "ms": 60,
+      "server": "k8s"
+    },
+    {
+      "step": 7,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 127,
+      "server": "argo"
+    },
+    {
+      "step": 8,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo",
+        "repo": "AkashDeepSinghJassal/repair-demo-app.git"
+      },
+      "result_preview": "{\n  \"error\": \"repo not allowed\"\n}",
+      "result": "{\n  \"error\": \"repo not allowed\"\n}",
+      "ms": 8,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1177,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n ...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 331,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"f92a0343c7a937cc79666f43742d40b44cae8e46\",\n  \"date\": \"2026-11-16T21:38:26+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"79163222db2180aa4ad1175699a54758ff69248a\",\n  \"date\": \"2026-11-16T21:27:33+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8...",
+      "result": "{\n  \"sha\": \"f92a0343c7a937cc79666f43742d40b44cae8e46\",\n  \"date\": \"2026-11-16T21:38:26+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"79163222db2180aa4ad1175699a54758ff69248a\",\n  \"date\": \"2026-11-16T21:27:33+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 545,
+      "server": "git"
+    },
+    {
+      "step": 12,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "f92a0343c7a937cc79666f43742d40b44cae8e46"
+      },
+      "result_preview": "commit f92a0343c7a937cc79666f43742d40b44cae8e46\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:...",
+      "result": "commit f92a0343c7a937cc79666f43742d40b44cae8e46\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:\n+            - labelSelector:\n+                matchLabels:\n+                  app: worker\n+              topologyKey: kubernetes.io/hostname\n       containers:\n         - name: worker\n           image: python:3.12-alpine",
+      "ms": 323,
+      "server": "git"
+    },
+    {
+      "step": 13,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 1,
+        "edits": [
+          {
+            "find": "      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname",
+            "replace": "      affinity:\n        podAntiAffinity:\n          preferredDuringSchedulingIgnoredDuringExecution:\n            - weight: 100\n              podAffinityTerm:\n                labelSelector:\n                  matchLabels:\n                    app: worker\n                topologyKey: kubernetes.io/hostname"
+          }
+        ],
+        "failure_class": "UNSCHEDULABLE",
+        "file": "deploy/demo/worker.yaml",
+        "rationale": "The pod 'worker-6b549cc7fb-szh96' is unschedulable because of a 'requiredDuringSchedulingIgnoredDuringExecution' podAntiAffinity rule. The cluster only has 1 node, and since there are already 2 worker pods running (as seen in k8s_list), the anti-affinity rule prevents a 3rd pod from being scheduled on the same node. However, the deployment is configured for 2 replicas, and the pod in question is part of a new ReplicaSet (6b549cc7fb) which seems to be trying to scale up or replace existing pods. Changing 'requiredDuringSchedulingIgnoredDuringExecution' to 'preferredDuringSchedulingIgnoredDuringExecution' allows pods to be scheduled on the same node if no other nodes are available, resolving the unschedulable state.",
+        "repo": "demo-app",
+        "root_cause": "The pod is unschedulable due to a hard podAntiAffinity rule ('requiredDuringSchedulingIgnoredDuringExecution') that prevents multiple worker pods from being scheduled on the same node. Since the cluster has only 1 node, only one worker pod can be scheduled under this rule. Commit f92a0343 added this rule.",
+        "verify": "The pod should transition from 'Pending' to 'Running' as the scheduler can now place it on the existing node."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 19,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-6b549cc7fb-szh96\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}\n{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-8h4cb\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-6b549cc7fb-szh96\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}\n{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\n{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}\n{\n  \"name\": \"api-58d57fbdd5\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-5cb96ddcbb\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-65b4fc86b7\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c49465558\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6c65777f7c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-6cfc45c79d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-758cd5bd56\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-78787bf5dc\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-7bf95bb8b8\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"api-84fd78b8cc\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"api-86d9b747f4\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-569fc5874c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-58c477456f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-5d9b55d6c7\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-5f6945d499\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-65c5f97556\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-67964b6d66\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-6b4c95cf57\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-6bd565ff7d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-7b4d5b89d4\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend-b99699886\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"redis-54db7b8bc\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"redis-5b47f84548\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis-7d8d979d6c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-554ff6d46f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-56f9c8ddd\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-584d5b844c\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-5b575b8d6f\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8\",\n  \"status\": \"replicas=2 ready=2 available=2\"\n}\n{\n  \"name\": \"worker-6b549cc7fb\",\n  \"status\": \"replicas=1 ready=0 available=0\"\n}\n{\n  \"name\": \"worker-9dfb6f64d\",\n  \"status\": \"replicas=0 ready=0 available=0\"\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\n{\n  \"error\": \"repo not allowed\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"f92a0343c7a937cc79666f43742d40b44cae8e46\",\n  \"date\": \"2026-11-16T21:38:26+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"79163222db2180aa4ad1175699a54758ff69248a\",\n  \"date\": \"2026-11-16T21:27:33+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"1b30a6794b56bff79300d57b7510380a2ef91805\",\n  \"date\": \"2026-11-16T21:26:28+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"daa020ab1358784c2567eecd273121652c30d8f2\",\n  \"date\": \"2026-11-16T21:26:13+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"bf1cc543e4e6c80b906d04132cbb187488031e24\",\n  \"date\": \"2026-11-16T21:25:38+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\ncommit f92a0343c7a937cc79666f43742d40b44cae8e46\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:\n+            - labelSelector:\n+                matchLabels:\n+                  app: worker\n+              topologyKey: kubernetes.io/hostname\n       containers:\n         - name: worker\n           image: python:3.12-alpine\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml"
+  ],
+  "usage": {
+    "provider": "scads-low",
+    "model": "google/gemma-4-26B-A4B-it",
+    "steps": 13,
+    "tool_calls": 13,
+    "input_tokens": 51033,
+    "output_tokens": 853,
+    "cost_usd": 0,
+    "reasoning_tokens": 28,
+    "latency_ms": 23266
+  },
+  "error": "",
+  "provider": "scads-low",
+  "model": "google/gemma-4-26B-A4B-it",
+  "latency_ms": 23266
+}

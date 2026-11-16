@@ -1,0 +1,1083 @@
+{
+  "providers": [
+    "scads-high",
+    "scads-medium",
+    "scads-low"
+  ],
+  "faults": {
+    "F4": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 16,
+          "input_tokens": 30067,
+          "output_tokens": 1220,
+          "latency_ms": 36762,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code",
+              "replace": "data:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code"
+            }
+          ],
+          "root_cause": "Commit 3f7a9bc removed DB_URL from the api-config ConfigMap (deploy/demo/configmaps.yaml), so the api container exits 1 with \"DB_URL not set\" and CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29832,
+          "output_tokens": 347,
+          "latency_ms": 15892,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          env:\n            - name: DB_URL\n              value: \"\"",
+              "replace": ""
+            }
+          ],
+          "root_cause": "69f541b5"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 14,
+          "input_tokens": 65436,
+          "output_tokens": 742,
+          "latency_ms": 25467,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info",
+              "replace": "data:\n  LOG_LEVEL: info\n  DB_URL: redis://redis:6379"
+            }
+          ],
+          "root_cause": "The `DB_URL` environment variable was removed from the `api-config` ConfigMap in commit `3f7a9bc48ada542381ef80f12784669bbb5297f4`, causing the `api` application to fail its startup check."
+        }
+      },
+      "pod": "api-65b4fc86b7-nwn4f",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F1": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 16976,
+          "output_tokens": 780,
+          "latency_ms": 25017,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m",
+              "replace": "          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m"
+            }
+          ],
+          "root_cause": "Commit f0dd2dd176f2d80046be80a580234131cce3bad0 reduced the api container memory limit to 32Mi (request 24Mi), causing the container to be OOMKilled (exit 137) and CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29752,
+          "output_tokens": 374,
+          "latency_ms": 17111,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "      memory: 24Mi",
+              "replace": "      memory: 96Mi"
+            },
+            {
+              "find": "      memory: 32Mi",
+              "replace": "      memory: 128Mi"
+            }
+          ],
+          "root_cause": "f0dd2dd"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 10,
+          "input_tokens": 31997,
+          "output_tokens": 591,
+          "latency_ms": 17871,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m",
+              "replace": "          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m"
+            }
+          ],
+          "root_cause": "The memory limit was reduced too aggressively in commit f0dd2dd, causing the container to be OOMKilled."
+        }
+      },
+      "pod": "api-7bf95bb8b8-6q9lh",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F5": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 12,
+          "input_tokens": 23031,
+          "output_tokens": 935,
+          "latency_ms": 25327,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          command: [\"python\", \"/app/worker.pyy\"]",
+              "replace": "          command: [\"python\", \"/app/worker.py\"]"
+            }
+          ],
+          "root_cause": "Commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086 introduced a typo in the worker container command: /app/worker.pyy instead of /app/worker.py. The file worker.pyy does not exist in the worker-code ConfigMap, so python exits with code 2 and the pod CrashLoopBackOffs (not Ready)."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 36480,
+          "output_tokens": 447,
+          "latency_ms": 19151,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "image: python:3.12-alpine",
+              "replace": "image: python:3.12-alpine3.99"
+            }
+          ],
+          "root_cause": "b32896504f0e54d836e3ec31f4ec7dd2346ea940"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 15,
+          "input_tokens": 59868,
+          "output_tokens": 600,
+          "latency_ms": 28517,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "worker-584d5b844c-8s8db",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F8": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 12,
+          "input_tokens": 20622,
+          "output_tokens": 1262,
+          "latency_ms": 30763,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code",
+              "replace": "data:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code"
+            }
+          ],
+          "root_cause": "Commit fc0314e4acb1c17934bce5d90d86c3af51a582e5 removed DB_URL from the api-config ConfigMap, so the api container exits 1 ('DB_URL not set') and CrashLoopBackOffs."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29909,
+          "output_tokens": 399,
+          "latency_ms": 15906,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "  memory: 96Mi\n",
+              "replace": "  memory: 32Mi\n"
+            },
+            {
+              "find": "  memory: 128Mi\n",
+              "replace": "  memory: 24Mi\n"
+            }
+          ],
+          "root_cause": "39b22a1"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 12,
+          "input_tokens": 54039,
+          "output_tokens": 630,
+          "latency_ms": 20810,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info",
+              "replace": "data:\n  LOG_LEVEL: info\n  DB_URL: redis://redis:6379"
+            }
+          ],
+          "root_cause": "The `DB_URL` environment variable was removed from the `api-config` ConfigMap in commit `fc0314e4`."
+        }
+      },
+      "pod": "api-78787bf5dc-s8fpn",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F9": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 28461,
+          "output_tokens": 858,
+          "latency_ms": 25904,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m",
+              "replace": "          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m"
+            }
+          ],
+          "root_cause": "Commit 3012ed958ccd4f5fc3ce7f740d8f6ec94faf35b5 lowered the api-b container memory limit to 32Mi (request 24Mi), causing the container to be OOMKilled (exit 137) and the pod to CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 37723,
+          "output_tokens": 484,
+          "latency_ms": 19007,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "      memory: 24Mi",
+              "replace": "      memory: 96Mi"
+            },
+            {
+              "find": "      memory: 32Mi",
+              "replace": "      memory: 128Mi"
+            }
+          ],
+          "root_cause": "372eda64"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 14,
+          "input_tokens": 53944,
+          "output_tokens": 586,
+          "latency_ms": 27039,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "api-b-7c9fb9b5c8-86w2l",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F10": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 15,
+          "input_tokens": 33704,
+          "output_tokens": 1147,
+          "latency_ms": 30415,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "apiVersion: v1\nkind: Service\nmetadata:\n  name: api-svc\n  namespace: demo",
+              "replace": "apiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo"
+            }
+          ],
+          "root_cause": "Commit 2df2f7a0dad677ed7f4e342fa5eb0de1f4b23e1b renamed the api Service from 'api' to 'api-svc', breaking DNS resolution of the 'api' upstream used by the frontend nginx config, causing nginx to exit 1 and the pod to CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 30800,
+          "output_tokens": 356,
+          "latency_ms": 16026,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "        disktype: ssd",
+              "replace": ""
+            }
+          ],
+          "root_cause": "1dd223e5e32"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 14,
+          "input_tokens": 79834,
+          "output_tokens": 655,
+          "latency_ms": 34496,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "frontend-569fc5874c-k5qsc",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F11": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 31972,
+          "output_tokens": 1246,
+          "latency_ms": 37315,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  site.conf: |",
+              "replace": "  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  default.conf: |"
+            }
+          ],
+          "root_cause": "Commit 44c62587e7b2cd09c010a7685bb0a35a14654806 renamed the frontend-nginx ConfigMap key default.conf -> site.conf while deploy/demo/frontend.yaml still mounts subPath default.conf, breaking the bind mount and causing CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 44402,
+          "output_tokens": 442,
+          "latency_ms": 19701,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "  disktype: ssd\n",
+              "replace": ""
+            }
+          ],
+          "root_cause": "7cd497be625a2254193984b46ae59c56a1f0e7a9"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 15,
+          "input_tokens": 83428,
+          "output_tokens": 829,
+          "latency_ms": 27288,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "            - name: nginx-conf\n              mountPath: /etc/nginx/conf.d/default.conf\n              subPath: default.conf\n              readOnly: true",
+              "replace": "            - name: nginx-conf\n              mountPath: /etc/nginx/conf.d/default.conf\n              subPath: site.conf\n              readOnly: true"
+            }
+          ],
+          "root_cause": "The ConfigMap 'frontend-nginx' key was changed from 'default.conf' to 'site.conf' in commit 44c62587, but the Deployment 'frontend' still references the old key 'default.conf' in its volumeMounts subPath."
+        }
+      },
+      "pod": "frontend-6bd565ff7d-m5wfr",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F12": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 26955,
+          "output_tokens": 875,
+          "latency_ms": 24938,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo-b/configmaps.yaml",
+          "edits": [
+            {
+              "find": "metadata:\n  name: api-b-config-v2\n  namespace: demo-b",
+              "replace": "metadata:\n  name: api-b-config\n  namespace: demo-b"
+            }
+          ],
+          "root_cause": "Commit 210ea89b renamed ConfigMap api-b-config to api-b-config-v2 in deploy/demo-b/configmaps.yaml while the api-b Deployment still references api-b-config via envFrom, causing CreateContainerConfigError (configmap \"api-b-config\" not found)."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 35010,
+          "output_tokens": 470,
+          "latency_ms": 18690,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo-b/configmaps.yaml",
+          "edits": [
+            {
+              "find": "api-b-config-v2",
+              "replace": "api-b-config"
+            }
+          ],
+          "root_cause": "d2bbad384618d16be6eb2ffc3c53d0546d956f9b"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 14,
+          "input_tokens": 46398,
+          "output_tokens": 743,
+          "latency_ms": 23899,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "            - configMapRef:\n                name: api-b-config",
+              "replace": "            - configMapRef:\n                name: api-b-config-v2"
+            }
+          ],
+          "root_cause": "The Deployment 'api-b' references a non-existent ConfigMap 'api-b-config' instead of the existing 'api-b-config-v2'."
+        }
+      },
+      "pod": "api-b-567bd7b5d9-xbln8",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F14": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 19044,
+          "output_tokens": 812,
+          "latency_ms": 25090,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m",
+              "replace": "          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m"
+            }
+          ],
+          "root_cause": "Commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2 inflated the worker container memory request to 64Gi (limit 96Gi), exceeding node capacity, so the new ReplicaSet pod cannot be scheduled."
+        },
+        "scads-medium": {
+          "status": "escalated",
+          "tool_calls": 9,
+          "input_tokens": 52460,
+          "output_tokens": 404,
+          "latency_ms": 18511,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "escalation": "The pod is pending due to insufficient memory and the failure class is not one of the allowed values",
+          "root_cause": "847b40ea"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 30938,
+          "output_tokens": 658,
+          "latency_ms": 19545,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m",
+              "replace": "            requests:\n              memory: 64Mi\n              cpu: 25m\n            limits:\n              memory: 96Mi\n              cpu: 250m"
+            }
+          ],
+          "root_cause": "commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2 increased memory requests from 32Mi to 64Gi, causing the pod to become unschedulable due to insufficient cluster memory."
+        }
+      },
+      "pod": "worker-9dfb6f64d-gttnf",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F15": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 22,
+          "input_tokens": 42684,
+          "output_tokens": 4023,
+          "latency_ms": 90314,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n          ports:",
+              "replace": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          ports:"
+            },
+            {
+              "find": "            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\napiVersion: v1\nkind: Service",
+              "replace": "            limits:\n              memory: 64Mi\n              cpu: 250m\n---\napiVersion: v1\nkind: Service"
+            },
+            {
+              "find": "    - name: redis\n      port: 6379\n      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi",
+              "replace": "    - name: redis\n      port: 6379\n      targetPort: 6379"
+            }
+          ],
+          "root_cause": "Commit 4a46c09a1a6e37007bc8ecc435df8103a380c441 added PVC redis-data with storageClassName 'fast-ssd', a StorageClass that does not exist in the cluster (only 'standard' exists), leaving the PVC Pending and the redis pod Unschedulable."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 43714,
+          "output_tokens": 455,
+          "latency_ms": 19832,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "storageClassName: fast-ssd",
+              "replace": "storageClassName: local-storage"
+            }
+          ],
+          "root_cause": "64ce56658c0310d5e791d7d7cc767baf852f7c60"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 19,
+          "input_tokens": 100236,
+          "output_tokens": 1061,
+          "latency_ms": 32873,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "  storageClassName: fast-ssd",
+              "replace": "  storageClassName: standard"
+            }
+          ],
+          "root_cause": "The PersistentVolumeClaim 'redis-data' uses a non-existent StorageClass 'fast-ssd', causing the pod to remain in Pending state. Commit 4a46c09a1a6e re-introduced the faulty StorageClass."
+        }
+      },
+      "pod": "redis-54db7b8bc-rxt25",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F16": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 18297,
+          "output_tokens": 950,
+          "latency_ms": 22520,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          command: [\"python\", \"/app/worker.py\"]\n          securityContext:\n            runAsNonRoot: true\n          volumeMounts:",
+              "replace": "          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:"
+            }
+          ],
+          "root_cause": "Commit bf1cc543e4e6c80b906d04132cbb187488031e24 added `securityContext.runAsNonRoot: true` to the worker container in deploy/demo/worker.yaml, which is incompatible with the root-user python:3.12-alpine image, causing CreateContainerConfigError."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 34427,
+          "output_tokens": 482,
+          "latency_ms": 19233,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          securityContext:\n            runAsNonRoot: true\n          ",
+              "replace": "          securityContext:\n            runAsNonRoot: false\n          "
+            }
+          ],
+          "root_cause": "ea038a6db14bea9db80a83f6f42667b5b946d84b"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 11,
+          "input_tokens": 85227,
+          "output_tokens": 472,
+          "latency_ms": 25489,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "worker-56f9c8ddd-k4zj7",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F18": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 23,
+          "input_tokens": 45465,
+          "output_tokens": 2014,
+          "latency_ms": 55623,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          command: [\"python\", \"/app/worker.py\"]\n          env:\n            - name: WORKER_TOKEN\n              valueFrom:\n                [REDACTED]                  name: worker-credentials\n                  key: WORKER_TOKEN\n          volumeMounts:",
+              "replace": "          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:"
+            }
+          ],
+          "root_cause": "Commit 1b30a6794b56bff79300d57b7510380a2ef91805 added an env var WORKER_TOKEN referencing secretKeyRef worker-credentials/WORKER_TOKEN, while the Secret it defined (and that exists in the cluster) only contains key WORKER_ID, so kubelet fails with CreateContainerConfigError and the pod stays Pending."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 6,
+          "input_tokens": 24668,
+          "output_tokens": 371,
+          "latency_ms": 15969,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          valueFrom:\n                [REDACTED] worker-credentials\n                  key: WORKER_TOKEN",
+              "replace": "          value: some_token"
+            }
+          ],
+          "root_cause": "1b30a6794b"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 14,
+          "input_tokens": 58500,
+          "output_tokens": 562,
+          "latency_ms": 28433,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "worker-554ff6d46f-69dgt",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F21": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 12,
+          "input_tokens": 23178,
+          "output_tokens": 838,
+          "latency_ms": 26452,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "            - name: APP_VERSION\n              value: \"1.0.0\"\n            - name: DB_URL\n              value: \"\"\n          envFrom:",
+              "replace": "            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:"
+            }
+          ],
+          "root_cause": "Commit 97318d393b8f8dada8450cd8d0c6a6fb6b721998 added an explicit env entry DB_URL=\"\" to the api Deployment, which overrides the DB_URL=redis://redis:6379 provided by the api-config ConfigMap via envFrom. The app sees an empty DB_URL, prints \"DB_URL not set\" and exits 1, causing CrashLoopBackOff."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29878,
+          "output_tokens": 478,
+          "latency_ms": 18169,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          env:\n            - name: DB_URL\n              value: \"\"\n",
+              "replace": "          env:\n            - name: DB_URL\n              value: \"postgres://user:password@host:port/dbname\"\n"
+            }
+          ],
+          "root_cause": "97318d393b8f8dada8450cd8d0c6a6fb6b721998"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 22,
+          "input_tokens": 87375,
+          "output_tokens": 1216,
+          "latency_ms": 37244,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "            - name: DB_URL\n              value: \"\"",
+              "replace": "            - name: DB_URL\n              valueFrom:\n                configMapKeyRef:\n                  name: api-config\n                  key: DB_URL"
+            }
+          ],
+          "root_cause": "The 'api' deployment explicitly sets 'DB_URL' to an empty string, which overrides the 'DB_URL' defined in the 'api-config' ConfigMap. Commit 97318d39 added this empty environment variable."
+        }
+      },
+      "pod": "api-6cfc45c79d-845bc",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F22": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 20456,
+          "output_tokens": 627,
+          "latency_ms": 21931,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]",
+              "replace": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]"
+            }
+          ],
+          "root_cause": "Commit 38abaff32157775ddfefb5864b7ca4a70ed75922 introduced an invalid redis maxmemory-policy value (allkeys-lfu-max) in deploy/demo/redis.yaml, causing redis to exit with a fatal config error on startup (CrashLoopBackOff)."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29957,
+          "output_tokens": 401,
+          "latency_ms": 17672,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "--maxmemory-policy \"allkeys-lfu-max\"",
+              "replace": "--maxmemory-policy \"volatile-lfu\""
+            }
+          ],
+          "root_cause": "b5eb80a6"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 10,
+          "input_tokens": 37229,
+          "output_tokens": 606,
+          "latency_ms": 19335,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]",
+              "replace": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu\"]"
+            }
+          ],
+          "root_cause": "commit 38abaff: invalid redis maxmemory-policy 'allkeys-lfu-max' introduced in deploy/demo/redis.yaml"
+        }
+      },
+      "pod": "redis-7d8d979d6c-26pwz",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F23": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 22329,
+          "output_tokens": 1327,
+          "latency_ms": 36822,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "          image: ghcr.io/akashdeepsinghjassal/api-b-private:1.0.0",
+              "replace": "          image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "Commit 39baab62bb8f9cfe718b4a265d819b28fcc774f3 switched deploy/demo-b/api-b.yaml to a private GHCR image (ghcr.io/akashdeepsinghjassal/api-b-private:1.0.0) while the referenced imagePullSecret 'regcred' does not exist in namespace demo-b, so the kubelet gets 403 Forbidden on the anonymous token fetch and the pod stuck in ErrImagePull."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29679,
+          "output_tokens": 409,
+          "latency_ms": 17514,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "image: ghcr.io/akashdeepsinghjassal/api-b-private:1.0.0",
+              "replace": "image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "ce2880a1e0f2dce41ca5189644a96482bc147ee9"
+        },
+        "scads-low": {
+          "status": "failed",
+          "tool_calls": 15,
+          "input_tokens": 116217,
+          "output_tokens": 609,
+          "latency_ms": 29620,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "model stopped calling tools (repeated or invalid calls only)"
+        }
+      },
+      "pod": "api-b-f5464dc85-zxxxb",
+      "symptom": "ErrImagePull",
+      "recovered": true
+    },
+    "F24": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 29338,
+          "output_tokens": 1482,
+          "latency_ms": 37799,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      containers:",
+              "replace": "    spec:\n      containers:"
+            }
+          ],
+          "root_cause": "Commit f92a0343 added a required podAntiAffinity (app=worker, topologyKey kubernetes.io/hostname) to the worker Deployment; on the single-node cluster with existing worker pods on that node, the new pod from ReplicaSet worker-6b549cc7fb can never be scheduled."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 28032,
+          "output_tokens": 378,
+          "latency_ms": 16592,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      ",
+              "replace": ""
+            }
+          ],
+          "root_cause": "f92a0343c7"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 51033,
+          "output_tokens": 853,
+          "latency_ms": 23266,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname",
+              "replace": "      affinity:\n        podAntiAffinity:\n          preferredDuringSchedulingIgnoredDuringExecution:\n            - weight: 100\n              podAffinityTerm:\n                labelSelector:\n                  matchLabels:\n                    app: worker\n                topologyKey: kubernetes.io/hostname"
+            }
+          ],
+          "root_cause": "The pod is unschedulable due to a hard podAntiAffinity rule ('requiredDuringSchedulingIgnoredDuringExecution') that prevents multiple worker pods from being scheduled on the same node. Since the cluster has only 1 node, only one worker pod can be scheduled under this rule. Commit f92a0343 added this rule."
+        }
+      },
+      "pod": "worker-6b549cc7fb-szh96",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F25": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 15,
+          "input_tokens": 34095,
+          "output_tokens": 1047,
+          "latency_ms": 29645,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "    spec:\n      nodeSelector:\n        disktype: ssd\n      containers:\n        - name: frontend",
+              "replace": "    spec:\n      containers:\n        - name: frontend"
+            }
+          ],
+          "root_cause": "Commit 2a17369c6d2ced90ef9c1f8de2219c887ce32290 added `nodeSelector: {disktype: ssd}` to deploy/demo/frontend.yaml, but no node in the cluster has that label, so the new frontend ReplicaSet's pods can never be scheduled."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 56700,
+          "output_tokens": 565,
+          "latency_ms": 22402,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "      nodeSelector:\n        disktype: ssd",
+              "replace": "      nodeSelector:\n        disktype: hdd"
+            }
+          ],
+          "root_cause": "7cd497be625a2254193984b46ae59c56a1f0e7a9"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 16,
+          "input_tokens": 51686,
+          "output_tokens": 711,
+          "latency_ms": 26631,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "      nodeSelector:\n        disktype: ssd",
+              "replace": ""
+            }
+          ],
+          "root_cause": "The frontend deployment has a nodeSelector requirement for 'disktype: ssd' (commit 2a17369) which is not met by any available node in the cluster."
+        }
+      },
+      "pod": "frontend-54b54c98c4-sx674",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F26": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 24341,
+          "output_tokens": 1520,
+          "latency_ms": 42966,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          livenessProbe:\n            httpGet:\n              path: /livez\n              port: 8000",
+              "replace": "          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000"
+            },
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m",
+              "replace": "          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m"
+            }
+          ],
+          "root_cause": "Commit fcae329bdd53eff9834cd1c7b8d322a58c49ecc0 (chore(demo): update api.yaml) reduced the api container memory limit 128Mi->32Mi (below the app's ~60MiB BALLAST allocation, causing OOMKilled exit 137) and changed the liveness probe path /healthz->/livez (endpoint not implemented, 404)."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 29788,
+          "output_tokens": 427,
+          "latency_ms": 17196,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m\n",
+              "replace": "          resources:\n            requests:\n              memory: 128Mi\n              cpu: 100m\n            limits:\n              memory: 256Mi\n              cpu: 1000m\n"
+            }
+          ],
+          "root_cause": "398e574b"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 42818,
+          "output_tokens": 733,
+          "latency_ms": 23084,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m",
+              "replace": "          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m"
+            }
+          ],
+          "root_cause": "The memory limits in deploy/demo/api.yaml were reduced in commit fcae329, leading to OOMKilled errors."
+        }
+      },
+      "pod": "api-64785d74c5-jt95x",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F27": {
+      "providers": {
+        "scads-high": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 24067,
+          "output_tokens": 873,
+          "latency_ms": 25363,
+          "model": "mistralai/Mistral-Large-4",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          image: python:3.12-alpine3.99",
+              "replace": "          image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "Commit 9aa3fd51cb58bd72b412780daaf3a1b1bedee7fe set the worker container image to the nonexistent tag python:3.12-alpine3.99, causing ErrImagePull/ImagePullBackOff on the new ReplicaSet worker-5b575b8d6f."
+        },
+        "scads-medium": {
+          "status": "proposed",
+          "tool_calls": 7,
+          "input_tokens": 31799,
+          "output_tokens": 403,
+          "latency_ms": 16684,
+          "model": "meta-llama/Llama-3.3-70B-Instruct",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "image: python:3.12-alpine3.99",
+              "replace": "image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "9aa3fd51cb58bd72b412780daaf3a1b1bedee7fe"
+        },
+        "scads-low": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 40856,
+          "output_tokens": 490,
+          "latency_ms": 14755,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          image: python:3.12-alpine3.99",
+              "replace": "          image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "The image tag 'python:3.12-alpine3.99' in deploy/demo/worker.yaml is invalid/non-existent, as evidenced by the ErrImagePull error 'not found'. This was introduced in commit 9aa3fd5."
+        }
+      },
+      "pod": "worker-5b575b8d6f-7vj4q",
+      "symptom": "ErrImagePull",
+      "recovered": true
+    }
+  },
+  "stopped": {},
+  "unavailable": {}
+}

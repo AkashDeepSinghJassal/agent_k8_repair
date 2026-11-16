@@ -1,0 +1,325 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/redis.yaml",
+    "edits": [
+      {
+        "find": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n          ports:",
+        "replace": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          ports:"
+      },
+      {
+        "find": "            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\napiVersion: v1\nkind: Service",
+        "replace": "            limits:\n              memory: 64Mi\n              cpu: 250m\n---\napiVersion: v1\nkind: Service"
+      },
+      {
+        "find": "    - name: redis\n      port: 6379\n      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi",
+        "replace": "    - name: redis\n      port: 6379\n      targetPort: 6379"
+      }
+    ],
+    "root_cause": "Commit 4a46c09a1a6e37007bc8ecc435df8103a380c441 added PVC redis-data with storageClassName 'fast-ssd', a StorageClass that does not exist in the cluster (only 'standard' exists), leaving the PVC Pending and the redis pod Unschedulable.",
+    "failure_class": "UNSCHEDULABLE",
+    "confidence": 0.95,
+    "rationale": "Pod redis-54db7b8bc-rxt25 is Pending/Unschedulable: 'pod has unbound immediate PersistentVolumeClaims'. The redis-data PVC in demo is Pending with storageClass=fast-ssd, but the cluster only defines the 'standard' StorageClass (rancher.io/local-path), so no PV is ever provisioned. Git history shows commit 4a46c09a1a6e37007bc8ecc435df8103a380c441 ('chore(demo): update redis.yaml') introduced the volumeMount, volumes entry, and the redis-data PVC with storageClassName fast-ssd; the previous known-good revision b5eb80a (still reflected by the healthy old pod redis-5b47f84548) had no PVC/volume, and earlier 'revert redis PVC with non-existent StorageClass' commits (e.g. 64ce566) fixed the identical fault by removing the PVC. Since PVC storageClassName is immutable once the PVC exists in the cluster, changing the class name in git would not repair the already-Pending PVC; reverting commit 4a46c09 (removing volumeMounts, volumes, and the PVC document) is the minimal fix grounded in history and cluster state.",
+    "verify": "After the PR merges and Argo CD (demo-app) syncs, the redis Deployment rolls to the spec without the data volume, PVC redis-data is pruned, and pod redis-54db7b8bc-rxt25 (new ReplicaSet) becomes Running/Ready 1/1 with no FailedScheduling events; Argo CD app health returns to Healthy.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "redis-54db7b8bc-rxt25"
+      },
+      "result_preview": "{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"redis-54db7b8bc\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"redis\",\n      \"image\": \"redis:7-...",
+      "result": "{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"redis-54db7b8bc\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"redis\",\n      \"image\": \"redis:7-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 385,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "redis-54db7b8bc-rxt25"
+      },
+      "result_preview": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/redis-54db7b8bc-rxt25\",\n  \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:23:49+00:00\"\n}",
+      "result": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/redis-54db7b8bc-rxt25\",\n  \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:23:49+00:00\"\n}",
+      "ms": 17,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "pods",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-repor...",
+      "result": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}",
+      "ms": 21,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 78,
+      "server": "argo"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "persistentvolumeclaims",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"redis-data\",\n  \"status\": \"Pending storageClass=fast-ssd\"\n}",
+      "result": "{\n  \"name\": \"redis-data\",\n  \"status\": \"Pending storageClass=fast-ssd\"\n}",
+      "ms": 40,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "persistentvolumes",
+        "namespace": "demo"
+      },
+      "result_preview": "",
+      "result": "",
+      "ms": 21,
+      "server": "k8s"
+    },
+    {
+      "step": 7,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "storageclasses",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"standard\",\n  \"status\": \"provisioner=rancher.io/local-path\"\n}",
+      "result": "{\n  \"name\": \"standard\",\n  \"status\": \"provisioner=rancher.io/local-path\"\n}",
+      "ms": 100,
+      "server": "k8s"
+    },
+    {
+      "step": 8,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1125,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/redis.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n          ports:\n            - containerPort: 6379\n          readinessProbe:\n            tcpSocket:\n              port: 6379\n            periodSeconds: 5\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  selector:\n    app: redis\n  ports:\n    - name: redis\n      port: 6379\n      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi\n",
+      "ms": 291,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/redis.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852...",
+      "result": "{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852f7c60\",\n  \"date\": \"2026-11-16T20:46:26+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"e28899355037ca32474dad3805ed9c3dd38e5ef1\",\n  \"date\": \"2026-11-16T20:44:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}",
+      "ms": 742,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "persistentvolumeclaim",
+        "namespace": "demo",
+        "name": "redis-data"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'persistentvolumeclaim'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'persistentvolumeclaim'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 3,
+      "server": "k8s"
+    },
+    {
+      "step": 12,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "sha": "4a46c09a1a6e37007bc8ecc435df8103a380c441"
+      },
+      "result_preview": "commit 4a46c09a1a6e37007bc8ecc435df8103a380c441\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi...",
+      "result": "commit 4a46c09a1a6e37007bc8ecc435df8103a380c441\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n+      volumes:\n+        - name: data\n+          persistentVolumeClaim:\n+            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -54,3 +61,15 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n+---\n+apiVersion: v1\n+kind: PersistentVolumeClaim\n+metadata:\n+  name: redis-data\n+  namespace: demo\n+spec:\n+  accessModes: [\"ReadWriteOnce\"]\n+  storageClassName: fast-ssd\n+  resources:\n+    requests:\n+      storage: 1Gi",
+      "ms": 409,
+      "server": "git"
+    },
+    {
+      "step": 13,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "sha": "64ce56658c0310d5e791d7d7cc767baf852f7c60"
+      },
+      "result_preview": "commit 64ce56658c0310d5e791d7d7cc767baf852f7c60\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,9 +23,6 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n-          volumeMounts:\n-            - name: data\n-              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -39,10 +36,6 @@ spec:\n             limits:\n               memory: 64Mi...",
+      "result": "commit 64ce56658c0310d5e791d7d7cc767baf852f7c60\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,9 +23,6 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n-          volumeMounts:\n-            - name: data\n-              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -39,10 +36,6 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n-      volumes:\n-        - name: data\n-          persistentVolumeClaim:\n-            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -61,15 +54,3 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n----\n-apiVersion: v1\n-kind: PersistentVolumeClaim\n-metadata:\n-  name: redis-data\n-  namespace: demo\n-spec:\n-  accessModes: [\"ReadWriteOnce\"]\n-  storageClassName: fast-ssd\n-  resources:\n-    requests:\n-      storage: 1Gi",
+      "ms": 643,
+      "server": "git"
+    },
+    {
+      "step": 14,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "sha": "b5eb80a6791f58587a4e669e3868c67f11b4dbaf"
+      },
+      "result_preview": "commit b5eb80a6791f58587a4e669e3868c67f11b4dbaf\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:",
+      "result": "commit b5eb80a6791f58587a4e669e3868c67f11b4dbaf\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:",
+      "ms": 791,
+      "server": "git"
+    },
+    {
+      "step": 15,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "limit": 20
+      },
+      "result_preview": "{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852...",
+      "result": "{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852f7c60\",\n  \"date\": \"2026-11-16T20:46:26+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"e28899355037ca32474dad3805ed9c3dd38e5ef1\",\n  \"date\": \"2026-11-16T20:44:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"ec5b7a6144ff86b4e0d3e01b16903e4de230b3fd\",\n  \"date\": \"2026-11-06T12:17:28+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"2253f52acd5528a3c823203dffc15f5250f52181\",\n  \"date\": \"2026-11-06T12:15:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"92c0682fdd1ca25bb662cf531f981d1814fd527e\",\n  \"date\": \"2026-11-06T11:46:31+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"b252c7f6c35fecc159777f0c3a049ec8ef658639\",\n  \"date\": \"2026-11-06T11:45:24+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"0b1eda31d5c1ec5b5428ea4a35f2e4ecbb07e5f3\",\n  \"date\": \"2026-11-06T10:50:25+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"3e2d2ecea041bbe1c55dcaa11ff03b75a744b5a4\",\n  \"date\": \"2026-11-06T10:49:23+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"770ddbd5098b990e4f7b5cde2cc71661b80fa031\",\n  \"date\": \"2026-11-04T15:10:32+00:00\",\n  \"message\": \"fault(F24): revert redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"0527529226fa86ff4065776530af3ebab759bc88\",\n  \"date\": \"2026-11-04T15:07:56+00:00\",\n  \"message\": \"fault(F24): redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"4baa327997d9a787c3a0a42f4ceae3d7daf789a7\",\n  \"date\": \"2026-11-04T14:51:41+00:00\",\n  \"message\": \"fault(F24): revert redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"c2b5759561a5e502c95a917a127acc8cb7a7b71c\",\n  \"date\": \"2026-11-04T14:51:12+00:00\",\n  \"message\": \"fault(F24): redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"da469eb8e69ea11c443a1347d75a9f6d0f25ed24\",\n  \"date\": \"2026-11-04T14:48:18+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"7b21a71840373ef1eed742c41ca0cf468790ae53\",\n  \"date\": \"2026-11-04T14:47:49+00:00\",\n  \"message\": \"fault(F22): redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"55345fea391a1bf22bb304fceb22b07ea069f8f3\",\n  \"date\": \"2026-10-27T20:58:31+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"11185e3a117dbe83dd2b135807ad1eb5c4f93e7e\",\n  \"date\": \"2026-10-27T20:57:33+00:00\",\n  \"message\": \"fault(F15): redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"c48752dd1f2539a8cd11aad35c08a3ee536aae66\",\n  \"date\": \"2026-10-22T19:05:56+00:00\",\n  \"message\": \"Initial demo app: multi-service app, network policies, release pipeline\"\n}",
+      "ms": 377,
+      "server": "git"
+    },
+    {
+      "step": 16,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo-b/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml",
+      "ms": 677,
+      "server": "git"
+    },
+    {
+      "step": 17,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "persistentvolumeclaims",
+        "namespace": "demo-b"
+      },
+      "result_preview": "",
+      "result": "",
+      "ms": 30,
+      "server": "k8s"
+    },
+    {
+      "step": 18,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "sha": "edd672db7ed66ee68e68c16ede6cb8b5a03358f9"
+      },
+      "result_preview": "commit edd672db7ed66ee68e68c16ede6cb8b5a03358f9\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:",
+      "result": "commit edd672db7ed66ee68e68c16ede6cb8b5a03358f9\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:",
+      "ms": 413,
+      "server": "git"
+    },
+    {
+      "step": 19,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "sha": "e28899355037ca32474dad3805ed9c3dd38e5ef1"
+      },
+      "result_preview": "commit e28899355037ca32474dad3805ed9c3dd38e5ef1\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi...",
+      "result": "commit e28899355037ca32474dad3805ed9c3dd38e5ef1\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n+      volumes:\n+        - name: data\n+          persistentVolumeClaim:\n+            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -54,3 +61,15 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n+---\n+apiVersion: v1\n+kind: PersistentVolumeClaim\n+metadata:\n+  name: redis-data\n+  namespace: demo\n+spec:\n+  accessModes: [\"ReadWriteOnce\"]\n+  storageClassName: fast-ssd\n+  resources:\n+    requests:\n+      storage: 1Gi",
+      "ms": 713,
+      "server": "git"
+    },
+    {
+      "step": 20,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/redis.yaml",
+        "ref": "b5eb80a6791f58587a4e669e3868c67f11b4dbaf"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          ports:\n            - containerPort: 6379\n          readinessProbe:\n            tcpSocket:\n              port: 6379\n            periodSeconds: 5\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  selector:\n    app: redis\n  ports:\n    - name: redis\n      port: 6379\n      targetPort: 6379\n",
+      "ms": 530,
+      "server": "git"
+    },
+    {
+      "step": 21,
+      "tool": "argo_app_status",
+      "args": {
+        "app": "demo-app"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"sync\": \"Synced\",\n  \"revision\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"health\": \"Progressing\",\n  \"operation\": {\n    \"phase\": \"Succeeded\",\n    \"message\": \"successfully synced (all tasks run)\"\n  },\n  \"resources\": [\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-code\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-config\",\n      \"namespace\": \"demo\",\n      \"...",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"sync\": \"Synced\",\n  \"revision\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"health\": \"Progressing\",\n  \"operation\": {\n    \"phase\": \"Succeeded\",\n    \"message\": \"successfully synced (all tasks run)\"\n  },\n  \"resources\": [\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-code\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-config\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"frontend-html\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"frontend-nginx\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"worker-code\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Namespace\",\n      \"name\": \"demo\",\n      \"namespace\": null,\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"PersistentVolumeClaim\",\n      \"name\": \"redis-data\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"worker\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-api-to-redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-frontend-to-api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-ingress-to-frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-worker-to-redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-workflows-to-api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"default-deny-ingress\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    }\n  ]\n}",
+      "ms": 47,
+      "server": "argo"
+    },
+    {
+      "step": 22,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 0.95,
+        "edits": [
+          {
+            "find": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n          ports:",
+            "replace": "          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          ports:"
+          },
+          {
+            "find": "            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\napiVersion: v1\nkind: Service",
+            "replace": "            limits:\n              memory: 64Mi\n              cpu: 250m\n---\napiVersion: v1\nkind: Service"
+          },
+          {
+            "find": "    - name: redis\n      port: 6379\n      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi",
+            "replace": "    - name: redis\n      port: 6379\n      targetPort: 6379"
+          }
+        ],
+        "failure_class": "UNSCHEDULABLE",
+        "file": "deploy/demo/redis.yaml",
+        "rationale": "Pod redis-54db7b8bc-rxt25 is Pending/Unschedulable: 'pod has unbound immediate PersistentVolumeClaims'. The redis-data PVC in demo is Pending with storageClass=fast-ssd, but the cluster only defines the 'standard' StorageClass (rancher.io/local-path), so no PV is ever provisioned. Git history shows commit 4a46c09a1a6e37007bc8ecc435df8103a380c441 ('chore(demo): update redis.yaml') introduced the volumeMount, volumes entry, and the redis-data PVC with storageClassName fast-ssd; the previous known-good revision b5eb80a (still reflected by the healthy old pod redis-5b47f84548) had no PVC/volume, and earlier 'revert redis PVC with non-existent StorageClass' commits (e.g. 64ce566) fixed the identical fault by removing the PVC. Since PVC storageClassName is immutable once the PVC exists in the cluster, changing the class name in git would not repair the already-Pending PVC; reverting commit 4a46c09 (removing volumeMounts, volumes, and the PVC document) is the minimal fix grounded in history and cluster state.",
+        "root_cause": "Commit 4a46c09a1a6e37007bc8ecc435df8103a380c441 added PVC redis-data with storageClassName 'fast-ssd', a StorageClass that does not exist in the cluster (only 'standard' exists), leaving the PVC Pending and the redis pod Unschedulable.",
+        "verify": "After the PR merges and Argo CD (demo-app) syncs, the redis Deployment rolls to the spec without the data volume, PVC redis-data is pruned, and pod redis-54db7b8bc-rxt25 (new ReplicaSet) becomes Running/Ready 1/1 with no FailedScheduling events; Argo CD app health returns to Healthy."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 21,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"redis-54db7b8bc\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"redis\",\n      \"image\": \"redis:7-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/redis-54db7b8bc-rxt25\",\n  \"message\": \"0/1 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:23:49+00:00\"\n}\n{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-54db7b8bc-rxt25\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\n{\n  \"name\": \"redis-data\",\n  \"status\": \"Pending storageClass=fast-ssd\"\n}\n\n{\n  \"name\": \"standard\",\n  \"status\": \"provisioner=rancher.io/local-path\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n          ports:\n            - containerPort: 6379\n          readinessProbe:\n            tcpSocket:\n              port: 6379\n            periodSeconds: 5\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: redis-data\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  selector:\n    app: redis\n  ports:\n    - name: redis\n      port: 6379\n      targetPort: 6379\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: demo\nspec:\n  accessModes: [\"ReadWriteOnce\"]\n  storageClassName: fast-ssd\n  resources:\n    requests:\n      storage: 1Gi\n\n{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852f7c60\",\n  \"date\": \"2026-11-16T20:46:26+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"e28899355037ca32474dad3805ed9c3dd38e5ef1\",\n  \"date\": \"2026-11-16T20:44:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"error\": \"unknown kind 'persistentvolumeclaim'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\ncommit 4a46c09a1a6e37007bc8ecc435df8103a380c441\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n+      volumes:\n+        - name: data\n+          persistentVolumeClaim:\n+            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -54,3 +61,15 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n+---\n+apiVersion: v1\n+kind: PersistentVolumeClaim\n+metadata:\n+  name: redis-data\n+  namespace: demo\n+spec:\n+  accessModes: [\"ReadWriteOnce\"]\n+  storageClassName: fast-ssd\n+  resources:\n+    requests:\n+      storage: 1Gi\ncommit 64ce56658c0310d5e791d7d7cc767baf852f7c60\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,9 +23,6 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n-          volumeMounts:\n-            - name: data\n-              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -39,10 +36,6 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n-      volumes:\n-        - name: data\n-          persistentVolumeClaim:\n-            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -61,15 +54,3 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n----\n-apiVersion: v1\n-kind: PersistentVolumeClaim\n-metadata:\n-  name: redis-data\n-  namespace: demo\n-spec:\n-  accessModes: [\"ReadWriteOnce\"]\n-  storageClassName: fast-ssd\n-  resources:\n-    requests:\n-      storage: 1Gi\ncommit b5eb80a6791f58587a4e669e3868c67f11b4dbaf\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n{\n  \"sha\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"date\": \"2026-11-16T21:23:45+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"b5eb80a6791f58587a4e669e3868c67f11b4dbaf\",\n  \"date\": \"2026-11-16T20:54:56+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"edd672db7ed66ee68e68c16ede6cb8b5a03358f9\",\n  \"date\": \"2026-11-16T20:53:03+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"64ce56658c0310d5e791d7d7cc767baf852f7c60\",\n  \"date\": \"2026-11-16T20:46:26+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"e28899355037ca32474dad3805ed9c3dd38e5ef1\",\n  \"date\": \"2026-11-16T20:44:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"ec5b7a6144ff86b4e0d3e01b16903e4de230b3fd\",\n  \"date\": \"2026-11-06T12:17:28+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"2253f52acd5528a3c823203dffc15f5250f52181\",\n  \"date\": \"2026-11-06T12:15:43+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"92c0682fdd1ca25bb662cf531f981d1814fd527e\",\n  \"date\": \"2026-11-06T11:46:31+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"b252c7f6c35fecc159777f0c3a049ec8ef658639\",\n  \"date\": \"2026-11-06T11:45:24+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"0b1eda31d5c1ec5b5428ea4a35f2e4ecbb07e5f3\",\n  \"date\": \"2026-11-06T10:50:25+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"3e2d2ecea041bbe1c55dcaa11ff03b75a744b5a4\",\n  \"date\": \"2026-11-06T10:49:23+00:00\",\n  \"message\": \"chore(demo): update redis.yaml\"\n}\n{\n  \"sha\": \"770ddbd5098b990e4f7b5cde2cc71661b80fa031\",\n  \"date\": \"2026-11-04T15:10:32+00:00\",\n  \"message\": \"fault(F24): revert redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"0527529226fa86ff4065776530af3ebab759bc88\",\n  \"date\": \"2026-11-04T15:07:56+00:00\",\n  \"message\": \"fault(F24): redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"4baa327997d9a787c3a0a42f4ceae3d7daf789a7\",\n  \"date\": \"2026-11-04T14:51:41+00:00\",\n  \"message\": \"fault(F24): revert redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"c2b5759561a5e502c95a917a127acc8cb7a7b71c\",\n  \"date\": \"2026-11-04T14:51:12+00:00\",\n  \"message\": \"fault(F24): redis PVC with unsupported access mode\"\n}\n{\n  \"sha\": \"da469eb8e69ea11c443a1347d75a9f6d0f25ed24\",\n  \"date\": \"2026-11-04T14:48:18+00:00\",\n  \"message\": \"fault(F22): revert redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"7b21a71840373ef1eed742c41ca0cf468790ae53\",\n  \"date\": \"2026-11-04T14:47:49+00:00\",\n  \"message\": \"fault(F22): redis invalid eviction policy argument\"\n}\n{\n  \"sha\": \"55345fea391a1bf22bb304fceb22b07ea069f8f3\",\n  \"date\": \"2026-10-27T20:58:31+00:00\",\n  \"message\": \"fault(F15): revert redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"11185e3a117dbe83dd2b135807ad1eb5c4f93e7e\",\n  \"date\": \"2026-10-27T20:57:33+00:00\",\n  \"message\": \"fault(F15): redis PVC with non-existent StorageClass\"\n}\n{\n  \"sha\": \"c48752dd1f2539a8cd11aad35c08a3ee536aae66\",\n  \"date\": \"2026-10-22T19:05:56+00:00\",\n  \"message\": \"Initial demo app: multi-service app, network policies, release pipeline\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\n\ncommit edd672db7ed66ee68e68c16ede6cb8b5a03358f9\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: redis\n           image: redis:7-alpine\n-          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lfu-max\"]\n           ports:\n             - containerPort: 6379\n           readinessProbe:\ncommit e28899355037ca32474dad3805ed9c3dd38e5ef1\n--- a/deploy/demo/redis.yaml\n+++ b/deploy/demo/redis.yaml\n@@ -23,6 +23,9 @@ spec:\n         - name: redis\n           image: redis:7-alpine\n           args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n+          volumeMounts:\n+            - name: data\n+              mountPath: /data\n           ports:\n             - containerPort: 6379\n           readinessProbe:\n@@ -36,6 +39,10 @@ spec:\n             limits:\n               memory: 64Mi\n               cpu: 250m\n+      volumes:\n+        - name: data\n+          persistentVolumeClaim:\n+            claimName: redis-data\n ---\n apiVersion: v1\n kind: Service\n@@ -54,3 +61,15 @@ spec:\n     - name: redis\n       port: 6379\n       targetPort: 6379\n+---\n+apiVersion: v1\n+kind: PersistentVolumeClaim\n+metadata:\n+  name: redis-data\n+  namespace: demo\n+spec:\n+  accessModes: [\"ReadWriteOnce\"]\n+  storageClassName: fast-ssd\n+  resources:\n+    requests:\n+      storage: 1Gi\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: redis\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: redis\n          image: redis:7-alpine\n          args: [\"--maxmemory\", \"32mb\", \"--maxmemory-policy\", \"allkeys-lru\"]\n          ports:\n            - containerPort: 6379\n          readinessProbe:\n            tcpSocket:\n              port: 6379\n            periodSeconds: 5\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: redis\n  namespace: demo\n  labels:\n    app: redis\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/redis.yaml\nspec:\n  selector:\n    app: redis\n  ports:\n    - name: redis\n      port: 6379\n      targetPort: 6379\n\n{\n  \"app\": \"demo-app\",\n  \"sync\": \"Synced\",\n  \"revision\": \"4a46c09a1a6e37007bc8ecc435df8103a380c441\",\n  \"health\": \"Progressing\",\n  \"operation\": {\n    \"phase\": \"Succeeded\",\n    \"message\": \"successfully synced (all tasks run)\"\n  },\n  \"resources\": [\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-code\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"api-config\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"frontend-html\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"frontend-nginx\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"ConfigMap\",\n      \"name\": \"worker-code\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Namespace\",\n      \"name\": \"demo\",\n      \"namespace\": null,\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"PersistentVolumeClaim\",\n      \"name\": \"redis-data\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Service\",\n      \"name\": \"redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"Deployment\",\n      \"name\": \"worker\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-api-to-redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-frontend-to-api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-ingress-to-frontend\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-worker-to-redis\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"allow-workflows-to-api\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    },\n    {\n      \"kind\": \"NetworkPolicy\",\n      \"name\": \"default-deny-ingress\",\n      \"namespace\": \"demo\",\n      \"sync\": \"Synced\",\n      \"health\": null,\n      \"message\": \"\"\n    }\n  ]\n}\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/redis.yaml"
+  ],
+  "usage": {
+    "provider": "scads-high",
+    "model": "mistralai/Mistral-Large-4",
+    "steps": 8,
+    "tool_calls": 22,
+    "input_tokens": 42684,
+    "output_tokens": 4023,
+    "cost_usd": 0,
+    "reasoning_tokens": 2490,
+    "latency_ms": 90314
+  },
+  "error": "",
+  "provider": "scads-high",
+  "model": "mistralai/Mistral-Large-4",
+  "latency_ms": 90314
+}

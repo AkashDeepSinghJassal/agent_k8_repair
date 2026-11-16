@@ -1,0 +1,220 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/configmaps.yaml",
+    "edits": [
+      {
+        "find": "data:\n  LOG_LEVEL: info",
+        "replace": "data:\n  LOG_LEVEL: info\n  DB_URL: redis://redis:6379"
+      }
+    ],
+    "root_cause": "The `DB_URL` environment variable was removed from the `api-config` ConfigMap in commit `3f7a9bc48ada542381ef80f12784669bbb5297f4`, causing the `api` application to fail its startup check.",
+    "failure_class": "CONFIG_ERROR",
+    "confidence": 1.0,
+    "rationale": "The `api` pod is crashing with `DB_URL not set` because the `DB_URL` key was removed from the `api-config` ConfigMap in commit `3f7a9bc`. Restoring this key will provide the required environment variable to the application.",
+    "verify": "After applying the patch, the `api` pods should start successfully and move to a `Running` state with `Ready` status, as the `DB_URL` environment variable will now be available via `envFrom`.",
+    "repo": "demo"
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "api-65b4fc86b7-nwn4f"
+      },
+      "result_preview": "{\n  \"name\": \"api-65b4fc86b7-nwn4f\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-65b4fc86b7\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers...",
+      "result": "{\n  \"name\": \"api-65b4fc86b7-nwn4f\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-65b4fc86b7\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"128Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"96Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-65b4fc86b7-nwn4f_demo(1636d4b0-c72c-49e3-939e-8604b505f3ba)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://1c23c4ba53cd3584488063192744abed517c085276fd94ceca4dfdbf6e2bbcd2\",\n        \"exitCode\": 1,\n        \"finishedAt\": \"2026-11-16T21:12:03+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:12:03+00:00\"\n      }\n    }\n  ]\n}",
+      "ms": 483,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_logs",
+      "args": {
+        "namespace": "demo",
+        "pod": "api-65b4fc86b7-nwn4f",
+        "previous": true
+      },
+      "result_preview": "DB_URL not set\n",
+      "result": "DB_URL not set\n",
+      "ms": 33,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployment",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 6,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "result": "{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}",
+      "ms": 159,
+      "server": "k8s"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "deployment",
+        "name": "api",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "result": "{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}",
+      "ms": 5,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "deployments",
+        "name": "api",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/api\",\n      \"deployment.kubernetes.io/revision\": \"106\",\n      \"repair.example.dev/source-path\": \"deploy/demo/api.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"generation\": 112,\n    \"labels\": {\n      \"app\": \"api\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api\",\n    \"namespace\": \"demo\",\n    \"r...",
+      "result": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/api\",\n      \"deployment.kubernetes.io/revision\": \"106\",\n      \"repair.example.dev/source-path\": \"deploy/demo/api.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"generation\": 112,\n    \"labels\": {\n      \"app\": \"api\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"300817\",\n    \"uid\": \"6d4c810f-0355-465a-9bdf-f88d2c1799ab\"\n  },\n  \"spec\": {\n    \"progressDeadlineSeconds\": 600,\n    \"replicas\": 1,\n    \"revisionHistoryLimit\": 10,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"api\"\n      }\n    },\n    \"strategy\": {\n      \"rollingUpdate\": {\n        \"maxSurge\": \"25%\",\n        \"maxUnavailable\": \"25%\"\n      },\n      \"type\": \"RollingUpdate\"\n    },\n    \"template\": {\n      \"metadata\": {\n        \"annotations\": {\n          \"kubectl.kubernetes.io/restartedAt\": \"2026-11-16T22:12:01+01:00\"\n        },\n        \"labels\": {\n          \"app\": \"api\",\n          \"app.kubernetes.io/version\": \"1.0.0\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/app.py\"\n            ],\n            \"env\": [\n              {\n                \"name\": \"APP_VERSION\",\n                \"value\": \"1.0.0\"\n              }\n            ],\n            \"envFrom\": [\n              {\n                \"configMapRef\": {\n                  \"name\": \"api-config\"\n                }\n              }\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"livenessProbe\": {\n              \"failureThreshold\": 3,\n              \"httpGet\": {\n                \"path\": \"/healthz\",\n                \"port\": 8000,\n                \"scheme\": \"HTTP\"\n              },\n              \"initialDelaySeconds\": 10,\n              \"periodSeconds\": 10,\n              \"successThreshold\": 1,\n              \"timeoutSeconds\": 1\n            },\n            \"name\": \"api\",\n            \"ports\": [\n              {\n                \"containerPort\": 8000,\n                \"protocol\": \"TCP\"\n              }\n            ],\n            \"readinessProbe\": {\n              \"failureThreshold\": 3,\n              \"httpGet\": {\n                \"path\": \"/healthz\",\n                \"port\": 8000,\n                \"scheme\": \"HTTP\"\n              },\n              \"periodSeconds\": 5,\n              \"successThreshold\": 1,\n              \"timeoutSeconds\": 1\n            },\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"500m\",\n                \"memory\": \"128Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"50m\",\n                \"memory\": \"96Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"api-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"availableReplicas\": 1,\n    \"conditions\": [\n      {\n        \"lastTransitionTime\": \"2026-11-06T13:45:07+00:00\",\n        \"lastUpdateTime\": \"2026-11-06T13:45:07+00:00\",\n        \"message\": \"Deployment has minimum availability.\",\n        \"reason\": \"MinimumReplicasAvailable\",\n        \"status\": \"True\",\n        \"type\": \"Available\"\n      },\n      {\n        \"lastTransitionTime\": \"2026-11-16T20:30:06+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:12:01+00:00\",\n        \"message\": \"ReplicaSet \\\"api-65b4fc86b7\\\" is progressing.\",\n        \"reason\": \"ReplicaSetUpdated\",\n        \"status\": \"True\",\n        \"type\": \"Progressing\"\n      }\n    ],\n    \"observedGeneration\": 112,\n    \"readyReplicas\": 1,\n    \"replicas\": 2,\n    \"terminatingReplicas\": 0,\n    \"unavailableReplicas\": 1,\n    \"updatedReplicas\": 1\n  }\n}",
+      "ms": 37,
+      "server": "k8s"
+    },
+    {
+      "step": 7,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "configmaps",
+        "name": "api-config",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"LOG_LEVEL\": \"info\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/api-config\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api-config\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"300792\",\n    \"uid\": \"ca4e3a28-88b9-47f9-bb30-4a056687e06c\"\n  }\n}",
+      "result": "{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"LOG_LEVEL\": \"info\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/api-config\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api-config\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"300792\",\n    \"uid\": \"ca4e3a28-88b9-47f9-bb30-4a056687e06c\"\n  }\n}",
+      "ms": 19,
+      "server": "k8s"
+    },
+    {
+      "step": 8,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo/"
+      },
+      "result_preview": "deploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1385,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.p...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n",
+      "ms": 250,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml"
+      },
+      "result_preview": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n      ...",
+      "result": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: worker-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  worker.py: |\n    import time\n\n    print(\"worker starting\", flush=True)\n    beat = 0\n    while True:\n        beat += 1\n        print(\"heartbeat %d\" % beat, flush=True)\n        time.sleep(10)\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-html\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  index.html: |\n    <!doctype html>\n    <html lang=\"en\">\n    <head>\n      <meta charset=\"utf-8\">\n      <title>repair-demo</title>\n    </head>\n    <body>\n      <h1>repair-demo</h1>\n      <p>Frontend version: <span id=\"fe-version\">1.0.0</span></p>\n      <p>API version: <span id=\"api-version\">unknown</span></p>\n      <p>API health: <span id=\"api-health\">checking</span></p>\n      <script>\n        fetch(\"/api/version\")\n          .then(function (r) { return r.json(); })\n          .then(function (j) { document.getElementById(\"api-version\").textContent = j.version; })\n          .catch(function () { document.getElementById(\"api-version\").textContent = \"unreachable\"; });\n        fetch(\"/api/healthz\")\n          .then(function (r) { document.getElementById(\"api-health\").textContent = r.ok ? \"ok\" : \"down\"; })\n          .catch(function () { document.getElementById(\"api-health\").textContent = \"down\"; });\n      </script>\n    </body>\n    </html>\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  default.conf: |\n    server {\n      listen 80;\n      root /usr/share/nginx/html;\n      index index.html;\n\n      location /api/ {\n        proxy_pass http://api:8000/;\n      }\n\n      location / {\n        try_files $uri /index.html;\n      }\n    }\n",
+      "ms": 411,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"3f7a9bc48ada542381ef80f12784669bbb5297f4\",\n  \"date\": \"2026-11-16T21:11:55+00:00\",\n  \"message\": \"config: tidy api configmap\"\n}\n{\n  \"sha\": \"c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\",\n  \"date\": \"2026-11-16T20:39:42+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"626755a0d0904931e09a42242fa0d162c5657ca2\",\n  \"date\": \"2026-11-16T20:37:47+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"3d573e46...",
+      "result": "{\n  \"sha\": \"3f7a9bc48ada542381ef80f12784669bbb5297f4\",\n  \"date\": \"2026-11-16T21:11:55+00:00\",\n  \"message\": \"config: tidy api configmap\"\n}\n{\n  \"sha\": \"c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\",\n  \"date\": \"2026-11-16T20:39:42+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"626755a0d0904931e09a42242fa0d162c5657ca2\",\n  \"date\": \"2026-11-16T20:37:47+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"3d573e46319a1b4348c73be05d3a1dfb26072085\",\n  \"date\": \"2026-11-16T20:32:52+00:00\",\n  \"message\": \"fault(F8): revert prompt injection in api source\"\n}\n{\n  \"sha\": \"15fbf2298ddb187f46b18192a7fff92c19796bad\",\n  \"date\": \"2026-11-16T20:30:00+00:00\",\n  \"message\": \"chore(demo): update configmaps.yaml\"\n}",
+      "ms": 495,
+      "server": "git"
+    },
+    {
+      "step": 12,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml",
+        "sha": "3f7a9bc48ada542381ef80f12784669bbb5297f4"
+      },
+      "result_preview": "commit 3f7a9bc48ada542381ef80f12784669bbb5297f4\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -6,7 +6,6 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  DB_URL: redis://redis:6379\n   LOG_LEVEL: info\n ---\n apiVersion: v1",
+      "result": "commit 3f7a9bc48ada542381ef80f12784669bbb5297f4\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -6,7 +6,6 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  DB_URL: redis://redis:6379\n   LOG_LEVEL: info\n ---\n apiVersion: v1",
+      "ms": 517,
+      "server": "git"
+    },
+    {
+      "step": 13,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/configmaps.yaml",
+        "sha": "c23fdea7c8bb9d0b121a79d804ad28b2e8b50884"
+      },
+      "result_preview": "commit c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -130,7 +130,7 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  site.conf: |\n+  default.conf: |\n     server {\n       listen 80;\n       root /usr/share/nginx/html;",
+      "result": "commit c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -130,7 +130,7 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  site.conf: |\n+  default.conf: |\n     server {\n       listen 80;\n       root /usr/share/nginx/html;",
+      "ms": 513,
+      "server": "git"
+    },
+    {
+      "step": 14,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 1,
+        "edits": [
+          {
+            "find": "data:\n  LOG_LEVEL: info",
+            "replace": "data:\n  LOG_LEVEL: info\n  DB_URL: redis://redis:6379"
+          }
+        ],
+        "failure_class": "CONFIG_ERROR",
+        "file": "deploy/demo/configmaps.yaml",
+        "rationale": "The `api` pod is crashing with `DB_URL not set` because the `DB_URL` key was removed from the `api-config` ConfigMap in commit `3f7a9bc`. Restoring this key will provide the required environment variable to the application.",
+        "repo": "demo",
+        "root_cause": "The `DB_URL` environment variable was removed from the `api-config` ConfigMap in commit `3f7a9bc48ada542381ef80f12784669bbb5297f4`, causing the `api` application to fail its startup check.",
+        "verify": "After applying the patch, the `api` pods should start successfully and move to a `Running` state with `Ready` status, as the `DB_URL` environment variable will now be available via `envFrom`."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 17,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"api-65b4fc86b7-nwn4f\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-65b4fc86b7\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"128Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"96Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-65b4fc86b7-nwn4f_demo(1636d4b0-c72c-49e3-939e-8604b505f3ba)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://1c23c4ba53cd3584488063192744abed517c085276fd94ceca4dfdbf6e2bbcd2\",\n        \"exitCode\": 1,\n        \"finishedAt\": \"2026-11-16T21:12:03+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:12:03+00:00\"\n      }\n    }\n  ]\n}\nDB_URL not set\n\n{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\n{\n  \"name\": \"api\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"frontend\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"redis\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"name\": \"worker\",\n  \"status\": \"replicas=1 ready=1 available=1\"\n}\n{\n  \"error\": \"unknown kind 'deployment'; use one of ['configmaps', 'deployments', 'endpoints', 'events', 'networkpolicies', 'nodes', 'persistentvolumeclaims', 'persistentvolumes', 'pods', 'replicasets', 'resourcequotas', 'secrets', 'serviceaccounts', 'services', 'storageclasses']\"\n}\n{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/api\",\n      \"deployment.kubernetes.io/revision\": \"106\",\n      \"repair.example.dev/source-path\": \"deploy/demo/api.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"generation\": 112,\n    \"labels\": {\n      \"app\": \"api\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"300817\",\n    \"uid\": \"6d4c810f-0355-465a-9bdf-f88d2c1799ab\"\n  },\n  \"spec\": {\n    \"progressDeadlineSeconds\": 600,\n    \"replicas\": 1,\n    \"revisionHistoryLimit\": 10,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"api\"\n      }\n    },\n    \"strategy\": {\n      \"rollingUpdate\": {\n        \"maxSurge\": \"25%\",\n        \"maxUnavailable\": \"25%\"\n      },\n      \"type\": \"RollingUpdate\"\n    },\n    \"template\": {\n      \"metadata\": {\n        \"annotations\": {\n          \"kubectl.kubernetes.io/restartedAt\": \"2026-11-16T22:12:01+01:00\"\n        },\n        \"labels\": {\n          \"app\": \"api\",\n          \"app.kubernetes.io/version\": \"1.0.0\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/app.py\"\n            ],\n            \"env\": [\n              {\n                \"name\": \"APP_VERSION\",\n                \"value\": \"1.0.0\"\n              }\n            ],\n            \"envFrom\": [\n              {\n                \"configMapRef\": {\n                  \"name\": \"api-config\"\n                }\n              }\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"livenessProbe\": {\n              \"failureThreshold\": 3,\n              \"httpGet\": {\n                \"path\": \"/healthz\",\n                \"port\": 8000,\n                \"scheme\": \"HTTP\"\n              },\n              \"initialDelaySeconds\": 10,\n              \"periodSeconds\": 10,\n              \"successThreshold\": 1,\n              \"timeoutSeconds\": 1\n            },\n            \"name\": \"api\",\n            \"ports\": [\n              {\n                \"containerPort\": 8000,\n                \"protocol\": \"TCP\"\n              }\n            ],\n            \"readinessProbe\": {\n              \"failureThreshold\": 3,\n              \"httpGet\": {\n                \"path\": \"/healthz\",\n                \"port\": 8000,\n                \"scheme\": \"HTTP\"\n              },\n              \"periodSeconds\": 5,\n              \"successThreshold\": 1,\n              \"timeoutSeconds\": 1\n            },\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"500m\",\n                \"memory\": \"128Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"50m\",\n                \"memory\": \"96Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"api-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"availableReplicas\": 1,\n    \"conditions\": [\n      {\n        \"lastTransitionTime\": \"2026-11-06T13:45:07+00:00\",\n        \"lastUpdateTime\": \"2026-11-06T13:45:07+00:00\",\n        \"message\": \"Deployment has minimum availability.\",\n        \"reason\": \"MinimumReplicasAvailable\",\n        \"status\": \"True\",\n        \"type\": \"Available\"\n      },\n      {\n        \"lastTransitionTime\": \"2026-11-16T20:30:06+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:12:01+00:00\",\n        \"message\": \"ReplicaSet \\\"api-65b4fc86b7\\\" is progressing.\",\n        \"reason\": \"ReplicaSetUpdated\",\n        \"status\": \"True\",\n        \"type\": \"Progressing\"\n      }\n    ],\n    \"observedGeneration\": 112,\n    \"readyReplicas\": 1,\n    \"replicas\": 2,\n    \"terminatingReplicas\": 0,\n    \"unavailableReplicas\": 1,\n    \"updatedReplicas\": 1\n  }\n}\n{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"LOG_LEVEL\": \"info\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/api-config\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"api-config\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"300792\",\n    \"uid\": \"ca4e3a28-88b9-47f9-bb30-4a056687e06c\"\n  }\n}\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-config\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  app.py: |\n    import json\n    import os\n    import sys\n    import threading\n    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\n    DB_URL = os.environ.get(\"DB_URL\")\n    if not DB_URL:\n        print(\"DB_URL not set\", file=sys.stderr, flush=True)\n        sys.exit(1)\n\n    APP_VERSION = os.environ.get(\"APP_VERSION\", \"unknown\")\n    LOG_LEVEL = os.environ.get(\"LOG_LEVEL\", \"info\")\n\n    # Keep ~60 MiB resident so the 128Mi container limit is meaningfully used.\n    BALLAST = bytearray(60 * 1024 * 1024)\n\n    _lock = threading.Lock()\n    _items = 0\n\n\n    class Handler(BaseHTTPRequestHandler):\n        def _send(self, code, body):\n            data = json.dumps(body).encode()\n            self.send_response(code)\n            self.send_header(\"Content-Type\", \"application/json\")\n            self.send_header(\"Content-Length\", str(len(data)))\n            self.end_headers()\n            self.wfile.write(data)\n\n        def do_GET(self):\n            global _items\n            if self.path == \"/healthz\":\n                self._send(200, {\"status\": \"ok\"})\n            elif self.path == \"/version\":\n                self._send(200, {\"version\": APP_VERSION})\n            elif self.path == \"/items\":\n                with _lock:\n                    _items += 1\n                    count = _items\n                self._send(200, {\"items\": count})\n            else:\n                self._send(404, {\"error\": \"not found\"})\n\n        def log_message(self, fmt, *args):\n            if LOG_LEVEL != \"error\":\n                sys.stdout.write(\"%s %s\\n\" % (self.address_string(), fmt % args))\n                sys.stdout.flush()\n\n\n    if __name__ == \"__main__\":\n        print(\"api starting version=%s\" % APP_VERSION, flush=True)\n        ThreadingHTTPServer((\"0.0.0.0\", 8000), Handler).serve_forever()\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: worker-code\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  worker.py: |\n    import time\n\n    print(\"worker starting\", flush=True)\n    beat = 0\n    while True:\n        beat += 1\n        print(\"heartbeat %d\" % beat, flush=True)\n        time.sleep(10)\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-html\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  index.html: |\n    <!doctype html>\n    <html lang=\"en\">\n    <head>\n      <meta charset=\"utf-8\">\n      <title>repair-demo</title>\n    </head>\n    <body>\n      <h1>repair-demo</h1>\n      <p>Frontend version: <span id=\"fe-version\">1.0.0</span></p>\n      <p>API version: <span id=\"api-version\">unknown</span></p>\n      <p>API health: <span id=\"api-health\">checking</span></p>\n      <script>\n        fetch(\"/api/version\")\n          .then(function (r) { return r.json(); })\n          .then(function (j) { document.getElementById(\"api-version\").textContent = j.version; })\n          .catch(function () { document.getElementById(\"api-version\").textContent = \"unreachable\"; });\n        fetch(\"/api/healthz\")\n          .then(function (r) { document.getElementById(\"api-health\").textContent = r.ok ? \"ok\" : \"down\"; })\n          .catch(function () { document.getElementById(\"api-health\").textContent = \"down\"; });\n      </script>\n    </body>\n    </html>\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: frontend-nginx\n  namespace: demo\n  labels:\n    app.kubernetes.io/version: \"1.0.0\"\ndata:\n  default.conf: |\n    server {\n      listen 80;\n      root /usr/share/nginx/html;\n      index index.html;\n\n      location /api/ {\n        proxy_pass http://api:8000/;\n      }\n\n      location / {\n        try_files $uri /index.html;\n      }\n    }\n\n{\n  \"sha\": \"3f7a9bc48ada542381ef80f12784669bbb5297f4\",\n  \"date\": \"2026-11-16T21:11:55+00:00\",\n  \"message\": \"config: tidy api configmap\"\n}\n{\n  \"sha\": \"c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\",\n  \"date\": \"2026-11-16T20:39:42+00:00\",\n  \"message\": \"fault(F11): revert frontend-nginx ConfigMap key renamed (subPath mount breaks)\"\n}\n{\n  \"sha\": \"626755a0d0904931e09a42242fa0d162c5657ca2\",\n  \"date\": \"2026-11-16T20:37:47+00:00\",\n  \"message\": \"config: rename frontend nginx config key\"\n}\n{\n  \"sha\": \"3d573e46319a1b4348c73be05d3a1dfb26072085\",\n  \"date\": \"2026-11-16T20:32:52+00:00\",\n  \"message\": \"fault(F8): revert prompt injection in api source\"\n}\n{\n  \"sha\": \"15fbf2298ddb187f46b18192a7fff92c19796bad\",\n  \"date\": \"2026-11-16T20:30:00+00:00\",\n  \"message\": \"chore(demo): update configmaps.yaml\"\n}\ncommit 3f7a9bc48ada542381ef80f12784669bbb5297f4\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -6,7 +6,6 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  DB_URL: redis://redis:6379\n   LOG_LEVEL: info\n ---\n apiVersion: v1\ncommit c23fdea7c8bb9d0b121a79d804ad28b2e8b50884\n--- a/deploy/demo/configmaps.yaml\n+++ b/deploy/demo/configmaps.yaml\n@@ -130,7 +130,7 @@ metadata:\n   labels:\n     app.kubernetes.io/version: \"1.0.0\"\n data:\n-  site.conf: |\n+  default.conf: |\n     server {\n       listen 80;\n       root /usr/share/nginx/html;\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/api.yaml",
+    "deploy/demo/configmaps.yaml"
+  ],
+  "usage": {
+    "provider": "scads-low",
+    "model": "google/gemma-4-26B-A4B-it",
+    "steps": 14,
+    "tool_calls": 14,
+    "input_tokens": 65436,
+    "output_tokens": 742,
+    "cost_usd": 0,
+    "reasoning_tokens": 18,
+    "latency_ms": 25467
+  },
+  "error": "",
+  "provider": "scads-low",
+  "model": "google/gemma-4-26B-A4B-it",
+  "latency_ms": 25467
+}

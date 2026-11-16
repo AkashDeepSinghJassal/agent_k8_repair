@@ -1,0 +1,179 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m",
+        "replace": "          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m"
+      }
+    ],
+    "root_cause": "Commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2 inflated the worker container memory request to 64Gi (limit 96Gi), exceeding node capacity, so the new ReplicaSet pod cannot be scheduled.",
+    "failure_class": "UNSCHEDULABLE",
+    "confidence": 0.98,
+    "rationale": "Pod worker-9dfb6f64d-gttnf is Pending/Unschedulable: '0/1 nodes are available: 1 Insufficient memory'. The pod requests 64Gi memory (limit 96Gi), which no node can satisfy. Commit 847b40ea ('deploy(worker): tune resource requests') changed requests.memory from 32Mi to 64Gi and limits.memory from 64Mi to 96Gi \u2014 the exact root cause. The last known good values (32Mi request / 64Mi limit) are confirmed by git history at 240bf4e6 and by the healthy running peer pod worker-65d89fdfc8-ddjbl, which uses memory request 32Mi / limit 64Mi and is Running/Ready on the same node.",
+    "verify": "After Argo CD syncs the reverted deploy/demo/worker.yaml, the worker Deployment rolls a new ReplicaSet with memory request 32Mi / limit 64Mi; pod becomes Running/Ready on repair-control-plane and the FailedScheduling Insufficient memory event stops recurring.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-9dfb6f64d-gttnf"
+      },
+      "result_preview": "{\n  \"name\": \"worker-9dfb6f64d-gttnf\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n ...",
+      "result": "{\n  \"name\": \"worker-9dfb6f64d-gttnf\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"96Gi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"64Gi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 328,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "name": "worker-9dfb6f64d-gttnf",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-gttnf\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:22:58+00:00\"\n}",
+      "result": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-gttnf\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:22:58+00:00\"\n}",
+      "ms": 28,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "pods",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release...",
+      "result": "{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-9dfb6f64d-gttnf\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}",
+      "ms": 27,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-65d89fdfc8-ddjbl"
+      },
+      "result_preview": "{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": ...",
+      "result": "{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": true,\n      \"state\": {\n        \"state\": \"running\",\n        \"startedAt\": \"2026-11-16T21:16:02+00:00\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 26,
+      "server": "k8s"
+    },
+    {
+      "step": 5,
+      "tool": "k8s_list",
+      "args": {
+        "kind": "nodes",
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"name\": \"repair-control-plane\",\n  \"status\": \"Ready=True\"\n}",
+      "result": "{\n  \"name\": \"repair-control-plane\",\n  \"status\": \"Ready=True\"\n}",
+      "ms": 24,
+      "server": "k8s"
+    },
+    {
+      "step": 6,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1041,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 256,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"240bf4e6a8111b80510cd76f31fdaa0101921f13\",\n  \"date\": \"2026-11-16T21:15:53+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea9...",
+      "result": "{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"240bf4e6a8111b80510cd76f31fdaa0101921f13\",\n  \"date\": \"2026-11-16T21:15:53+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 743,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "847b40eaeb42d8f6408dda5c21630216c8fe25b2"
+      },
+      "result_preview": "commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code",
+      "result": "commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code",
+      "ms": 474,
+      "server": "git"
+    },
+    {
+      "step": 10,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "ref": "240bf4e6a8111b80510cd76f31fdaa0101921f13"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 557,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "propose_patch",
+      "args": {
+        "edits": [
+          {
+            "find": "          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m",
+            "replace": "          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m"
+          }
+        ],
+        "failure_class": "UNSCHEDULABLE",
+        "file": "deploy/demo/worker.yaml",
+        "confidence": 0.98,
+        "rationale": "Pod worker-9dfb6f64d-gttnf is Pending/Unschedulable: '0/1 nodes are available: 1 Insufficient memory'. The pod requests 64Gi memory (limit 96Gi), which no node can satisfy. Commit 847b40ea ('deploy(worker): tune resource requests') changed requests.memory from 32Mi to 64Gi and limits.memory from 64Mi to 96Gi \u2014 the exact root cause. The last known good values (32Mi request / 64Mi limit) are confirmed by git history at 240bf4e6 and by the healthy running peer pod worker-65d89fdfc8-ddjbl, which uses memory request 32Mi / limit 64Mi and is Running/Ready on the same node.",
+        "root_cause": "Commit 847b40eaeb42d8f6408dda5c21630216c8fe25b2 inflated the worker container memory request to 64Gi (limit 96Gi), exceeding node capacity, so the new ReplicaSet pod cannot be scheduled.",
+        "verify": "After Argo CD syncs the reverted deploy/demo/worker.yaml, the worker Deployment rolls a new ReplicaSet with memory request 32Mi / limit 64Mi; pod becomes Running/Ready on repair-control-plane and the FailedScheduling Insufficient memory event stops recurring."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 32,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-9dfb6f64d-gttnf\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"96Gi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"64Gi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-gttnf\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:22:58+00:00\"\n}\n{\n  \"name\": \"api-84fd78b8cc-hnznc\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"frontend-8445ffc84d-crfqt\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"redis-5b47f84548-f5zxw\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-check-config-2306985255\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-report-2628715034\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"release-pipeline-baseline-spbkv-smoke-test-2284441581\",\n  \"status\": \"Succeeded ready=0/2 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"status\": \"Running ready=1/1 restarts=0\"\n}\n{\n  \"name\": \"worker-9dfb6f64d-gttnf\",\n  \"status\": \"Pending ready=0/0 restarts=0\"\n}\n{\n  \"name\": \"worker-65d89fdfc8-ddjbl\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-65d89fdfc8\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": true,\n      \"state\": {\n        \"state\": \"running\",\n        \"startedAt\": \"2026-11-16T21:16:02+00:00\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"name\": \"repair-control-plane\",\n  \"status\": \"Ready=True\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"847b40eaeb42d8f6408dda5c21630216c8fe25b2\",\n  \"date\": \"2026-11-16T21:22:46+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"240bf4e6a8111b80510cd76f31fdaa0101921f13\",\n  \"date\": \"2026-11-16T21:15:53+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\ncommit 847b40eaeb42d8f6408dda5c21630216c8fe25b2\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml"
+  ],
+  "usage": {
+    "provider": "scads-high",
+    "model": "mistralai/Mistral-Large-4",
+    "steps": 5,
+    "tool_calls": 11,
+    "input_tokens": 19044,
+    "output_tokens": 812,
+    "cost_usd": 0,
+    "reasoning_tokens": 126,
+    "latency_ms": 25090
+  },
+  "error": "",
+  "provider": "scads-high",
+  "model": "mistralai/Mistral-Large-4",
+  "latency_ms": 25090
+}

@@ -1,0 +1,194 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "          command: [\"python\", \"/app/worker.pyy\"]",
+        "replace": "          command: [\"python\", \"/app/worker.py\"]"
+      }
+    ],
+    "root_cause": "Commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086 introduced a typo in the worker container command: /app/worker.pyy instead of /app/worker.py. The file worker.pyy does not exist in the worker-code ConfigMap, so python exits with code 2 and the pod CrashLoopBackOffs (not Ready).",
+    "failure_class": "CRASH_LOOP",
+    "confidence": 0.98,
+    "rationale": "Pod worker-584d5b844c-8s8db is Running but its container exits with code 2 in a CrashLoopBackOff (restartCount 3, BackOff events). Current logs: \"python: can't open file '/app/worker.pyy': [Errno 2] No such file or directory\". The ConfigMap worker-code mounted at /app only contains the key worker.py, so the command must reference /app/worker.py. Git history shows commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086 (2026-11-16T21:14:34, 'chore(demo): update worker.yaml') changed exactly this line from /app/worker.py to /app/worker.pyy; the previous value is the last known good one. The live Deployment (revision 40) carries the same broken command, confirming Argo CD synced the bad commit.",
+    "verify": "After Argo CD syncs the fix, a new ReplicaSet/pod for worker should start, container 'worker' stays Running and Ready (restartCount stops increasing, no new BackOff events), and logs show 'worker starting' followed by 'heartbeat N' lines instead of the worker.pyy file-not-found error.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-584d5b844c-8s8db"
+      },
+      "result_preview": "{\n  \"name\": \"worker-584d5b844c-8s8db\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-584d5b844c\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"cont...",
+      "result": "{\n  \"name\": \"worker-584d5b844c-8s8db\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-584d5b844c\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 3,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://8e0aeea8c0764ac4107ff0a9fd5b812acdcfcb3c1b29a0670d510508f845c98a\",\n        \"exitCode\": 2,\n        \"finishedAt\": \"2026-11-16T21:15:19+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:15:19+00:00\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://5c9e6ba7e3c8f004ce7d5907a63a9d5e5b6b3fa3776b36f19fb27e62b8bbb389\",\n        \"exitCode\": 2,\n        \"finishedAt\": \"2026-11-16T21:14:56+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:14:56+00:00\"\n      }\n    }\n  ]\n}",
+      "ms": 346,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "worker-584d5b844c-8s8db"
+      },
+      "result_preview": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Started\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container started\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"BackOff\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Back-off restarting failed container worker in pod worker-584d5b844c-8s8db_demo(18aa982a-1b02-4bc2-b811-5dcde75ba294)\",\n  \"count\": 3,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reas...",
+      "result": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Started\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container started\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"BackOff\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Back-off restarting failed container worker in pod worker-584d5b844c-8s8db_demo(18aa982a-1b02-4bc2-b811-5dcde75ba294)\",\n  \"count\": 3,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:18+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Created\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container created\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:18+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Successfully assigned demo/worker-584d5b844c-8s8db to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:14:43+00:00\"\n}",
+      "ms": 26,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_logs",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-584d5b844c-8s8db"
+      },
+      "result_preview": "python: can't open file '/app/worker.pyy': [Errno 2] No such file or directory\n",
+      "result": "python: can't open file '/app/worker.pyy': [Errno 2] No such file or directory\n",
+      "ms": 15,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "k8s_logs",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-584d5b844c-8s8db",
+        "previous": true
+      },
+      "result_preview": "unable to retrieve container logs for containerd://5c9e6ba7e3c8f004ce7d5907a63a9d5e5b6b3fa3776b36f19fb27e62b8bbb389",
+      "result": "unable to retrieve container logs for containerd://5c9e6ba7e3c8f004ce7d5907a63a9d5e5b6b3fa3776b36f19fb27e62b8bbb389",
+      "ms": 9,
+      "server": "k8s"
+    },
+    {
+      "step": 5,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1628,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "deployments",
+        "namespace": "demo",
+        "name": "worker"
+      },
+      "result_preview": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/revision\": \"40\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worker.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:32+00:00\",\n    \"generation\": 40,\n    \"labels\": {\n      \"app\": \"worker\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"worker\",\n    \"namespace\": \"dem...",
+      "result": "{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/revision\": \"40\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worker.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:32+00:00\",\n    \"generation\": 40,\n    \"labels\": {\n      \"app\": \"worker\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"worker\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"301479\",\n    \"uid\": \"90138d5e-a0d0-4fd1-b776-dcb9af0bd990\"\n  },\n  \"spec\": {\n    \"progressDeadlineSeconds\": 600,\n    \"replicas\": 1,\n    \"revisionHistoryLimit\": 10,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"worker\"\n      }\n    },\n    \"strategy\": {\n      \"rollingUpdate\": {\n        \"maxSurge\": \"25%\",\n        \"maxUnavailable\": \"25%\"\n      },\n      \"type\": \"RollingUpdate\"\n    },\n    \"template\": {\n      \"metadata\": {\n        \"labels\": {\n          \"app\": \"worker\",\n          \"app.kubernetes.io/version\": \"1.0.0\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/worker.pyy\"\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"name\": \"worker\",\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"250m\",\n                \"memory\": \"64Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"25m\",\n                \"memory\": \"32Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"worker-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"conditions\": [\n      {\n        \"lastTransitionTime\": \"2026-10-22T22:49:32+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:14:43+00:00\",\n        \"message\": \"ReplicaSet \\\"worker-584d5b844c\\\" has successfully progressed.\",\n        \"reason\": \"NewReplicaSetAvailable\",\n        \"status\": \"True\",\n        \"type\": \"Progressing\"\n      },\n      {\n        \"lastTransitionTime\": \"2026-11-16T21:15:19+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:15:19+00:00\",\n        \"message\": \"Deployment does not have minimum availability.\",\n        \"reason\": \"MinimumReplicasUnavailable\",\n        \"status\": \"False\",\n        \"type\": \"Available\"\n      }\n    ],\n    \"observedGeneration\": 40,\n    \"replicas\": 1,\n    \"terminatingReplicas\": 0,\n    \"unavailableReplicas\": 1,\n    \"updatedReplicas\": 1\n  }\n}",
+      "ms": 75,
+      "server": "k8s"
+    },
+    {
+      "step": 7,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.pyy\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 290,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"f5c6138873a9eda7...",
+      "result": "{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"f5c6138873a9eda711d3d4093046054b2848f5fb\",\n  \"date\": \"2026-11-16T20:59:20+00:00\",\n  \"message\": \"fault(F24): revert required pod anti-affinity on a single-node cluster\"\n}\n{\n  \"sha\": \"bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\",\n  \"date\": \"2026-11-16T20:57:32+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 666,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "k8s_get",
+      "args": {
+        "kind": "configmaps",
+        "namespace": "demo",
+        "name": "worker-code"
+      },
+      "result_preview": "{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"worker.py\": \"import time\\n\\nprint(\\\"worker starting\\\", flush=True)\\nbeat = 0\\nwhile True:\\n    beat += 1\\n    print(\\\"heartbeat %d\\\" % beat, flush=True)\\n    time.sleep(10)\\n\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/worker-code\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": ...",
+      "result": "{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"worker.py\": \"import time\\n\\nprint(\\\"worker starting\\\", flush=True)\\nbeat = 0\\nwhile True:\\n    beat += 1\\n    print(\\\"heartbeat %d\\\" % beat, flush=True)\\n    time.sleep(10)\\n\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/worker-code\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"worker-code\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"1067\",\n    \"uid\": \"50fe4ebd-2f80-4ae7-8e1d-1a786b5f724d\"\n  }\n}",
+      "ms": 28,
+      "server": "k8s"
+    },
+    {
+      "step": 10,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086"
+      },
+      "result_preview": "commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: worker\n           image: python:3.12-alpine\n-          command: [\"python\", \"/app/worker.py\"]\n+          command: [\"python\", \"/app/worker.pyy\"]\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "result": "commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: worker\n           image: python:3.12-alpine\n-          command: [\"python\", \"/app/worker.py\"]\n+          command: [\"python\", \"/app/worker.pyy\"]\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "ms": 390,
+      "server": "git"
+    },
+    {
+      "step": 11,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "6b52f573cfb9a727f671823c4e4ac8146ebba7a8"
+      },
+      "result_preview": "commit 6b52f573cfb9a727f671823c4e4ac8146ebba7a8\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -21,7 +21,7 @@ spec:\n     spec:\n       containers:\n         - name: worker\n-          image: python:3.12-alpine\n+          image: python:3.12-alpine3.99\n           command: [\"python\", \"/app/worker.py\"]\n           volumeMounts:\n             - name: code",
+      "result": "commit 6b52f573cfb9a727f671823c4e4ac8146ebba7a8\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -21,7 +21,7 @@ spec:\n     spec:\n       containers:\n         - name: worker\n-          image: python:3.12-alpine\n+          image: python:3.12-alpine3.99\n           command: [\"python\", \"/app/worker.py\"]\n           volumeMounts:\n             - name: code",
+      "ms": 638,
+      "server": "git"
+    },
+    {
+      "step": 12,
+      "tool": "propose_patch",
+      "args": {
+        "confidence": 0.98,
+        "edits": [
+          {
+            "find": "          command: [\"python\", \"/app/worker.pyy\"]",
+            "replace": "          command: [\"python\", \"/app/worker.py\"]"
+          }
+        ],
+        "failure_class": "CRASH_LOOP",
+        "file": "deploy/demo/worker.yaml",
+        "rationale": "Pod worker-584d5b844c-8s8db is Running but its container exits with code 2 in a CrashLoopBackOff (restartCount 3, BackOff events). Current logs: \"python: can't open file '/app/worker.pyy': [Errno 2] No such file or directory\". The ConfigMap worker-code mounted at /app only contains the key worker.py, so the command must reference /app/worker.py. Git history shows commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086 (2026-11-16T21:14:34, 'chore(demo): update worker.yaml') changed exactly this line from /app/worker.py to /app/worker.pyy; the previous value is the last known good one. The live Deployment (revision 40) carries the same broken command, confirming Argo CD synced the bad commit.",
+        "root_cause": "Commit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086 introduced a typo in the worker container command: /app/worker.pyy instead of /app/worker.py. The file worker.pyy does not exist in the worker-code ConfigMap, so python exits with code 2 and the pod CrashLoopBackOffs (not Ready).",
+        "verify": "After Argo CD syncs the fix, a new ReplicaSet/pod for worker should start, container 'worker' stays Running and Ready (restartCount stops increasing, no new BackOff events), and logs show 'worker starting' followed by 'heartbeat N' lines instead of the worker.pyy file-not-found error."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 18,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-584d5b844c-8s8db\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-584d5b844c\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 3,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://8e0aeea8c0764ac4107ff0a9fd5b812acdcfcb3c1b29a0670d510508f845c98a\",\n        \"exitCode\": 2,\n        \"finishedAt\": \"2026-11-16T21:15:19+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:15:19+00:00\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://5c9e6ba7e3c8f004ce7d5907a63a9d5e5b6b3fa3776b36f19fb27e62b8bbb389\",\n        \"exitCode\": 2,\n        \"finishedAt\": \"2026-11-16T21:14:56+00:00\",\n        \"reason\": \"Error\",\n        \"startedAt\": \"2026-11-16T21:14:56+00:00\"\n      }\n    }\n  ]\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Started\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container started\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"BackOff\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Back-off restarting failed container worker in pod worker-584d5b844c-8s8db_demo(18aa982a-1b02-4bc2-b811-5dcde75ba294)\",\n  \"count\": 3,\n  \"lastTimestamp\": \"2026-11-16T21:15:19+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:18+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Created\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Container created\",\n  \"count\": 4,\n  \"lastTimestamp\": \"2026-11-16T21:15:18+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-584d5b844c-8s8db\",\n  \"message\": \"Successfully assigned demo/worker-584d5b844c-8s8db to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T21:14:43+00:00\"\n}\npython: can't open file '/app/worker.pyy': [Errno 2] No such file or directory\n\nunable to retrieve container logs for containerd://5c9e6ba7e3c8f004ce7d5907a63a9d5e5b6b3fa3776b36f19fb27e62b8bbb389\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\n{\n  \"apiVersion\": \"apps/v1\",\n  \"kind\": \"Deployment\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:apps/Deployment:demo/worker\",\n      \"deployment.kubernetes.io/revision\": \"40\",\n      \"repair.example.dev/source-path\": \"deploy/demo/worker.yaml\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:32+00:00\",\n    \"generation\": 40,\n    \"labels\": {\n      \"app\": \"worker\",\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"worker\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"301479\",\n    \"uid\": \"90138d5e-a0d0-4fd1-b776-dcb9af0bd990\"\n  },\n  \"spec\": {\n    \"progressDeadlineSeconds\": 600,\n    \"replicas\": 1,\n    \"revisionHistoryLimit\": 10,\n    \"selector\": {\n      \"matchLabels\": {\n        \"app\": \"worker\"\n      }\n    },\n    \"strategy\": {\n      \"rollingUpdate\": {\n        \"maxSurge\": \"25%\",\n        \"maxUnavailable\": \"25%\"\n      },\n      \"type\": \"RollingUpdate\"\n    },\n    \"template\": {\n      \"metadata\": {\n        \"labels\": {\n          \"app\": \"worker\",\n          \"app.kubernetes.io/version\": \"1.0.0\"\n        }\n      },\n      \"spec\": {\n        \"containers\": [\n          {\n            \"command\": [\n              \"python\",\n              \"/app/worker.pyy\"\n            ],\n            \"image\": \"python:3.12-alpine\",\n            \"imagePullPolicy\": \"IfNotPresent\",\n            \"name\": \"worker\",\n            \"resources\": {\n              \"limits\": {\n                \"cpu\": \"250m\",\n                \"memory\": \"64Mi\"\n              },\n              \"requests\": {\n                \"cpu\": \"25m\",\n                \"memory\": \"32Mi\"\n              }\n            },\n            \"terminationMessagePath\": \"/dev/termination-log\",\n            \"terminationMessagePolicy\": \"File\",\n            \"volumeMounts\": [\n              {\n                \"mountPath\": \"/app\",\n                \"name\": \"code\",\n                \"readOnly\": true\n              }\n            ]\n          }\n        ],\n        \"dnsPolicy\": \"ClusterFirst\",\n        \"restartPolicy\": \"Always\",\n        \"schedulerName\": \"default-scheduler\",\n        \"securityContext\": {},\n        \"terminationGracePeriodSeconds\": 30,\n        \"volumes\": [\n          {\n            \"configMap\": {\n              \"defaultMode\": 420,\n              \"name\": \"worker-code\"\n            },\n            \"name\": \"code\"\n          }\n        ]\n      }\n    }\n  },\n  \"status\": {\n    \"conditions\": [\n      {\n        \"lastTransitionTime\": \"2026-10-22T22:49:32+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:14:43+00:00\",\n        \"message\": \"ReplicaSet \\\"worker-584d5b844c\\\" has successfully progressed.\",\n        \"reason\": \"NewReplicaSetAvailable\",\n        \"status\": \"True\",\n        \"type\": \"Progressing\"\n      },\n      {\n        \"lastTransitionTime\": \"2026-11-16T21:15:19+00:00\",\n        \"lastUpdateTime\": \"2026-11-16T21:15:19+00:00\",\n        \"message\": \"Deployment does not have minimum availability.\",\n        \"reason\": \"MinimumReplicasUnavailable\",\n        \"status\": \"False\",\n        \"type\": \"Available\"\n      }\n    ],\n    \"observedGeneration\": 40,\n    \"replicas\": 1,\n    \"terminatingReplicas\": 0,\n    \"unavailableReplicas\": 1,\n    \"updatedReplicas\": 1\n  }\n}\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.pyy\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\",\n  \"date\": \"2026-11-16T21:14:34+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b32896504f0e54d836e3ec31f4ec7dd2346ea940\",\n  \"date\": \"2026-11-16T21:05:55+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"6b52f573cfb9a727f671823c4e4ac8146ebba7a8\",\n  \"date\": \"2026-11-16T21:04:05+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"f5c6138873a9eda711d3d4093046054b2848f5fb\",\n  \"date\": \"2026-11-16T20:59:20+00:00\",\n  \"message\": \"fault(F24): revert required pod anti-affinity on a single-node cluster\"\n}\n{\n  \"sha\": \"bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\",\n  \"date\": \"2026-11-16T20:57:32+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"apiVersion\": \"v1\",\n  \"data\": {\n    \"worker.py\": \"import time\\n\\nprint(\\\"worker starting\\\", flush=True)\\nbeat = 0\\nwhile True:\\n    beat += 1\\n    print(\\\"heartbeat %d\\\" % beat, flush=True)\\n    time.sleep(10)\\n\"\n  },\n  \"kind\": \"ConfigMap\",\n  \"metadata\": {\n    \"annotations\": {\n      \"argocd.argoproj.io/tracking-id\": \"demo-app:/ConfigMap:demo/worker-code\"\n    },\n    \"creationTimestamp\": \"2026-10-22T22:49:31+00:00\",\n    \"labels\": {\n      \"app.kubernetes.io/version\": \"1.0.0\"\n    },\n    \"name\": \"worker-code\",\n    \"namespace\": \"demo\",\n    \"resourceVersion\": \"1067\",\n    \"uid\": \"50fe4ebd-2f80-4ae7-8e1d-1a786b5f724d\"\n  }\n}\ncommit c4d66b1d262d1f3d1d6dbeca91e6416c53c5d086\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -22,7 +22,7 @@ spec:\n       containers:\n         - name: worker\n           image: python:3.12-alpine\n-          command: [\"python\", \"/app/worker.py\"]\n+          command: [\"python\", \"/app/worker.pyy\"]\n           volumeMounts:\n             - name: code\n               mountPath: /app\ncommit 6b52f573cfb9a727f671823c4e4ac8146ebba7a8\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -21,7 +21,7 @@ spec:\n     spec:\n       containers:\n         - name: worker\n-          image: python:3.12-alpine\n+          image: python:3.12-alpine3.99\n           command: [\"python\", \"/app/worker.py\"]\n           volumeMounts:\n             - name: code\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml"
+  ],
+  "usage": {
+    "provider": "scads-high",
+    "model": "mistralai/Mistral-Large-4",
+    "steps": 5,
+    "tool_calls": 12,
+    "input_tokens": 23031,
+    "output_tokens": 935,
+    "cost_usd": 0,
+    "reasoning_tokens": 136,
+    "latency_ms": 25327
+  },
+  "error": "",
+  "provider": "scads-high",
+  "model": "mistralai/Mistral-Large-4",
+  "latency_ms": 25327
+}
