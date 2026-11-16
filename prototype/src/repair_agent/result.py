@@ -12,7 +12,7 @@ MAX_RESULT = 20_000
 
 @dataclass
 class AgentResult:
-    status: str  # "proposed" | "escalated" | "failed" | "rate_limited"
+    status: str  # "proposed" | "escalated" | "failed" | "rate_limited" | "unavailable"
     proposal: dict | None = None
     trace: list[dict] = field(default_factory=list)
     evidence_text: str = ""

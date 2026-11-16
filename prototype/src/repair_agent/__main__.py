@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {res.error}")
         if res.proposal:
             print(json.dumps(res.proposal, indent=2))
-    return 0 if res.status not in ("failed", "rate_limited") else 1
+    return 0 if res.status not in ("failed", "rate_limited", "unavailable") else 1
 
 
 if __name__ == "__main__":

@@ -145,7 +145,7 @@ def test_groq_loop_nudge_then_finish_and_give_up(tmp_path):
     res, _, seen = _loop([_resp("I think it is fine"), _resp(calls=[("propose_patch", '{"file": "f"}')])], tmp_path)
     assert res.status == "proposed" and seen[1] == seen[0] + 2  # assistant text + nudge appended
     res, _, _ = _loop([_resp("a"), _resp("b"), _resp("c")], tmp_path)
-    assert res.status == "failed" and "without" in res.error
+    assert res.status == "failed" and "stopped calling tools" in res.error
 
 
 def test_groq_loop_retries_api_errors_and_bad_args(tmp_path):

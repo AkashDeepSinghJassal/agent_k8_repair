@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 
 SCADS_LEVELS = {
-    "scads-high": ("REPAIR_SCADS_MODEL_HIGH", "zai-org/GLM-5.3"),
-    "scads-medium": ("REPAIR_SCADS_MODEL_MEDIUM", "openai/gpt-oss-120b"),
+    "scads-high": ("REPAIR_SCADS_MODEL_HIGH", "mistralai/Mistral-Large-4"),
+    "scads-medium": ("REPAIR_SCADS_MODEL_MEDIUM", "meta-llama/Llama-3.3-70B-Instruct"),
     "scads-low": ("REPAIR_SCADS_MODEL_LOW", "google/gemma-4-26B-A4B-it"),
 }
 PROVIDERS = ("groq", "claude-cli", *SCADS_LEVELS)

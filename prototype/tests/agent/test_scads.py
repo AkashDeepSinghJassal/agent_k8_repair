@@ -174,3 +174,69 @@ def test_bench_failing_pod_detection(tmp_path):
     f = tmp_path / "x.json"
     f.write_text(json.dumps({"status": "escalated", "proposal": {"reason": "nothing"}, "usage": {"tool_calls": 2, "latency_ms": 9}}))
     assert b.summarize(f)["tool_calls"] == 2 and b.summarize(tmp_path / "none.json")["status"] == "no_result"
+
+
+def test_new_default_levels():
+    assert config.model_for("scads-high") == "mistralai/Mistral-Large-4"
+    assert config.model_for("scads-medium") == "meta-llama/Llama-3.3-70B-Instruct"
+
+
+def test_pacing_interval_and_env(monkeypatch):
+    from repair_agent import scads_host as sh
+
+    assert sh.min_interval_s("scads-low") == 1.5
+    monkeypatch.setenv("REPAIR_SCADS_MIN_INTERVAL_S", "2")
+    monkeypatch.setenv("REPAIR_SCADS_MIN_INTERVAL_LOW", "0.5")
+    assert sh.min_interval_s("scads-high") == 2.0 and sh.min_interval_s("scads-low") == 0.5
+    sh._next_slot.clear()
+    waits: list[float] = []
+    t = [100.0]
+    for _ in range(3):
+        sh.pace("m", 1.5, clock=lambda: t[0], sleep=waits.append)
+    assert waits == [1.5, 3.0]
+
+
+def _503():
+    return ScadsHTTPError(httpx.Response(503, text="temporarily unavailable, likely due to a temporary restart"))
+
+
+def test_503_backs_off_then_unavailable(tmp_path):
+    sleeps: list[float] = []
+    calls = []
+
+    def create(**kw):
+        calls.append(1)
+        raise _503()
+
+    res = _loop(create, tmp_path, sleeps)
+    assert res.status == "unavailable" and sleeps == [10, 20, 40, 60] and len(calls) == 5
+
+
+def test_503_recovers(tmp_path):
+    sleeps: list[float] = []
+    n = []
+
+    def create(**kw):
+        n.append(1)
+        if len(n) == 1:
+            raise _503()
+        raise _rate_error(None)
+
+    assert _loop(create, tmp_path, sleeps).status == "rate_limited" and sleeps == [10]
+
+
+def test_no_tool_call_loop_guard(tmp_path):
+    from types import SimpleNamespace as NS
+
+    def create(**kw):
+        return NS(choices=[NS(message=NS(content="thinking", tool_calls=None))], usage=None)
+
+    res = _loop(create, tmp_path, [])
+    assert res.status == "failed" and res.error == "model stopped calling tools"
+
+
+def test_bench_records_unavailable_not_stopped():
+    b = _bench()
+    stopped: dict[str, str] = {}
+    b.update_stopped(stopped, {"scads-high": {"status": "unavailable"}}, "F4")
+    assert stopped == {}

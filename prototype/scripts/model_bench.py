@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out or ROOT / "results" / "model-bench" / datetime.now().strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     providers = [p.strip() for p in args.providers.split(",") if p.strip()]
-    summary: dict[str, Any] = {"providers": providers, "faults": {}, "stopped": {}}
+    summary: dict[str, Any] = {"providers": providers, "faults": {}, "stopped": {}, "unavailable": {}}
     stopped: dict[str, str] = summary["stopped"]
     for fault in [f.strip() for f in args.faults.split(",") if f.strip()]:
         if not active_providers(providers, stopped):
@@ -197,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"== {fault}: {active_providers(providers, stopped)}", flush=True)
         r = bench_fault(fault, providers, out_dir, args, stopped)
         update_stopped(stopped, r["providers"], fault)
+        for p, row in r["providers"].items():
+            if row.get("status") == "unavailable":
+                summary["unavailable"].setdefault(p, []).append(fault)
         summary["faults"][fault] = r
         (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
         for p, row in r["providers"].items():

@@ -70,6 +70,18 @@ def retry_wait(exc: Exception, default: float) -> float:
         return min(default, 30.0)
 
 
+UNAVAILABLE_BACKOFF_S = (10, 20, 40, 60)  # ~2.5 min in total
+MAX_STALLED_STEPS = 3
+
+
+class Unavailable(Exception):
+    """Provider returned 503 / 'temporarily unavailable' for the whole backoff schedule (strict mode)."""
+
+
+def is_unavailable(exc: Exception) -> bool:
+    return getattr(exc, "status_code", None) == 503 or "temporarily unavailable" in str(exc).lower()
+
+
 class RateLimited(Exception):
     """Provider quota / rate limit that is not worth waiting for (strict mode)."""
 
@@ -129,6 +141,7 @@ async def run_loop(
     retried_rl = False
     nudges = 0
     seen_calls: dict[str, int] = {}
+    stalled = 0  # consecutive model replies that executed no tool
 
     def left() -> float:
         return timeout_s - (time.monotonic() - started)
@@ -145,6 +158,7 @@ async def run_loop(
     async def llm(kw: dict) -> Any:
         last: Exception | None = None
         nonlocal retried_rl
+        unavailable_tries = 0
         budget = ctx_tokens or CTX_TOKENS
         for attempt in range(API_RETRIES + 1):
             compact(messages, toolbox.tools, budget)
@@ -154,6 +168,13 @@ async def run_loop(
                 raise
             except Exception as e:
                 last = e
+                if strict_rate_limit and is_unavailable(e):
+                    if unavailable_tries >= len(UNAVAILABLE_BACKOFF_S) or left() <= UNAVAILABLE_BACKOFF_S[unavailable_tries]:
+                        raise Unavailable(f"{type(e).__name__}: {str(e)[:300]}") from e
+                    wait = UNAVAILABLE_BACKOFF_S[unavailable_tries]
+                    unavailable_tries += 1
+                    await asyncio.sleep(wait)
+                    continue
                 if strict_rate_limit and is_rate_limited(e):
                     ra = retry_after_s(e)
                     if retried_rl or ra is None or ra > 20 or left() <= ra:
@@ -190,6 +211,8 @@ async def run_loop(
                 return done("failed", timeout_msg)
             except RateLimited as e:
                 return done("rate_limited", str(e))
+            except Unavailable as e:
+                return done("unavailable", str(e))
             except Exception as e:  # noqa: BLE001
                 return done("failed", f"{provider} api error: {type(e).__name__}: {str(e)[:300]}")
             usage["steps"] += 1
@@ -208,6 +231,9 @@ async def run_loop(
             if not calls:
                 if read_outcome(out_path) is not None:
                     return done("failed")
+                stalled += 1
+                if stalled >= MAX_STALLED_STEPS:
+                    return done("failed", "model stopped calling tools")
                 if nudges >= MAX_NUDGES:
                     return done("failed", "model stopped without propose_patch/escalate")
                 nudges += 1
@@ -221,6 +247,7 @@ async def run_loop(
                     for c in calls
                 ],
             })
+            executed_before = usage["tool_calls"]
             for c in calls:
                 name = c.function.name
                 try:
@@ -262,6 +289,10 @@ async def run_loop(
                 messages.append({"role": "tool", "tool_call_id": c.id, "content": shown})
             if read_outcome(out_path) is not None:
                 return done("failed")
+            # replies whose every call was rejected (repeat, bad arguments, budget) make no progress either
+            stalled = 0 if usage["tool_calls"] > executed_before else stalled + 1
+            if stalled >= MAX_STALLED_STEPS:
+                return done("failed", "model stopped calling tools (repeated or invalid calls only)")
             if usage["tool_calls"] >= max_steps + 3:
                 return done("failed", "tool budget exhausted")
     except Exception as e:  # noqa: BLE001
