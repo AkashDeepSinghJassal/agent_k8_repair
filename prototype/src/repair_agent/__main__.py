@@ -60,16 +60,29 @@ def main(argv: list[str] | None = None) -> int:
     inv.add_argument("--namespace", required=True)
     inv.add_argument("--pod", required=True)
     inv.add_argument("--container", default="")
-    inv.add_argument("--provider", choices=["groq", "claude-cli"])
+    inv.add_argument("--provider", help="groq | claude-cli | scads-high | scads-medium | scads-low | scads:<model-id>")
+    inv.add_argument("--no-fallback", action="store_true", help="do not fall back to the other provider")
+    inv.add_argument("--out", help="write the full AgentResult JSON to this file")
+    inv.add_argument("--timeout", type=int, default=600)
     inv.add_argument("--json", action="store_true")
     sub.add_parser("tools")
     args = ap.parse_args(argv)
     if args.cmd == "tools":
         asyncio.run(_list_tools())
         return 0
+    import time
+
     from .runner import investigate
 
-    res = investigate(_seed_from_pod(args.namespace, args.pod, args.container), provider=args.provider)
+    t0 = time.monotonic()
+    res = investigate(_seed_from_pod(args.namespace, args.pod, args.container), provider=args.provider,
+                      timeout_s=args.timeout, fallback=not args.no_fallback)
+    if args.out:
+        data = dataclasses.asdict(res)
+        data.update(provider=res.usage.get("provider"), model=res.usage.get("model"),
+                    latency_ms=res.usage.get("latency_ms") or int((time.monotonic() - t0) * 1000))
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(data, indent=2, default=str))
     if args.json:
         print(json.dumps(dataclasses.asdict(res), indent=2, default=str))
     else:
@@ -80,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {res.error}")
         if res.proposal:
             print(json.dumps(res.proposal, indent=2))
-    return 0 if res.status != "failed" else 1
+    return 0 if res.status not in ("failed", "rate_limited") else 1
 
 
 if __name__ == "__main__":

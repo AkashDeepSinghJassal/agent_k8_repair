@@ -391,7 +391,7 @@ async function initAgentSwitch() {
   const sel = $("agent-provider");
   try {
     const c = await getJSON("/api/agent/config");
-    for (const p of ["groq", "claude-cli"]) {
+    for (const p of ["groq", "claude-cli", "scads-high", "scads-medium", "scads-low"]) {
       const o = h("option", { value: p }, p + (c.available[p] ? "" : " (unavailable)"));
       if (p === c.provider) o.selected = true;
       sel.append(o);

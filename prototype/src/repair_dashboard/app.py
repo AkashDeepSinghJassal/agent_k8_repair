@@ -288,7 +288,7 @@ def _state_dir() -> Path:
     return Path(os.environ.get("REPAIR_STATE_DIR") or "~/.repair-loop").expanduser()
 
 
-PROVIDERS = ("groq", "claude-cli")
+PROVIDERS = ("groq", "claude-cli", "scads-high", "scads-medium", "scads-low")
 
 
 def _agent_config() -> dict:
@@ -301,7 +301,11 @@ def _agent_config() -> dict:
 @app.get("/api/agent/config")
 def agent_config_get():
     cfg = _agent_config()
-    available = {"groq": bool(os.environ.get("GROQ_API_KEY")), "claude-cli": shutil.which("claude") is not None}
+    from repair_agent.config import scads_api_key
+
+    scads = bool(scads_api_key())
+    available = {"groq": bool(os.environ.get("GROQ_API_KEY")), "claude-cli": shutil.which("claude") is not None,
+                 "scads-high": scads, "scads-medium": scads, "scads-low": scads}
     provider = cfg.get("provider") or os.environ.get("REPAIR_AGENT_PROVIDER") or ("groq" if available["groq"] else "claude-cli")
     return {"provider": provider, "model": cfg.get("model") or "", "available": available}
 

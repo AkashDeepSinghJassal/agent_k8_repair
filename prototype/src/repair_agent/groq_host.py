@@ -70,6 +70,24 @@ def retry_wait(exc: Exception, default: float) -> float:
         return min(default, 30.0)
 
 
+class RateLimited(Exception):
+    """Provider quota / rate limit that is not worth waiting for (strict mode)."""
+
+
+def is_rate_limited(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    low = str(exc).lower()
+    return "rate limit" in low or "rate_limit" in low or "quota" in low
+
+
+def retry_after_s(exc: Exception) -> float | None:
+    try:
+        return float(exc.response.headers["retry-after"])  # type: ignore[attr-defined]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
 class ToolCaller(Protocol):
     tools: list[dict]
 
@@ -94,13 +112,21 @@ async def run_loop(
     timeout_s: float = 600,
     sleep: Any = time.sleep,
     on_tool: Any = None,
+    provider: str = "groq",
+    ctx_tokens: int | None = None,
+    strict_rate_limit: bool = False,
+    max_tokens_key: str = "max_completion_tokens",
+    free: bool = False,
 ) -> AgentResult:
     """``create`` is ``client.chat.completions.create``. Returns an AgentResult (never raises)."""
     started = time.monotonic()
     messages: list[dict] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     trace: list[dict] = []
     evidence: list[str] = []
-    usage = {"provider": "groq", "model": model, "steps": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
+    usage = {"provider": provider, "model": model, "steps": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
+    if free:
+        usage["cost_usd"] = 0
+    retried_rl = False
     nudges = 0
     seen_calls: dict[str, int] = {}
 
@@ -118,15 +144,23 @@ async def run_loop(
 
     async def llm(kw: dict) -> Any:
         last: Exception | None = None
-        budget = CTX_TOKENS
+        nonlocal retried_rl
+        budget = ctx_tokens or CTX_TOKENS
         for attempt in range(API_RETRIES + 1):
             compact(messages, toolbox.tools, budget)
             try:
                 return await asyncio.wait_for(asyncio.to_thread(lambda: create(**kw)), timeout=max(0.1, left()))
             except TimeoutError:
                 raise
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 last = e
+                if strict_rate_limit and is_rate_limited(e):
+                    ra = retry_after_s(e)
+                    if retried_rl or ra is None or ra > 20 or left() <= ra:
+                        raise RateLimited(f"{type(e).__name__}: {str(e)[:300]}") from e
+                    retried_rl = True
+                    await asyncio.sleep(ra)
+                    continue
                 if getattr(e, "status_code", None) == 413:
                     budget = int(budget * 0.7)
                     compact(messages, toolbox.tools, budget, keep_recent=0)
@@ -136,7 +170,7 @@ async def run_loop(
                 if attempt < API_RETRIES and left() > 0:
                     wait = min(retry_wait(e, 2.0 * 2**attempt), left())
                     if os.environ.get("REPAIR_AGENT_DEBUG"):
-                        print(f"[groq] api error {type(e).__name__} {str(e)[:120]}; wait {wait:.0f}s", file=sys.stderr, flush=True)
+                        print(f"[{provider}] api error {type(e).__name__} {str(e)[:120]}; wait {wait:.0f}s", file=sys.stderr, flush=True)
                     await asyncio.sleep(wait) if sleep is time.sleep else await asyncio.to_thread(sleep, wait)
         raise last  # type: ignore[misc]
 
@@ -146,7 +180,7 @@ async def run_loop(
                 return done("failed", timeout_msg)
             kw: dict[str, Any] = {
                 "model": model, "messages": messages, "tools": toolbox.tools, "tool_choice": "auto",
-                "max_completion_tokens": 8192,
+                max_tokens_key: 8192,
             }
             if model.startswith("openai/gpt-oss"):
                 kw["reasoning_effort"] = os.environ.get("REPAIR_AGENT_REASONING_EFFORT", "medium")
@@ -154,15 +188,21 @@ async def run_loop(
                 resp = await llm(kw)
             except TimeoutError:
                 return done("failed", timeout_msg)
+            except RateLimited as e:
+                return done("rate_limited", str(e))
             except Exception as e:  # noqa: BLE001
-                return done("failed", f"groq api error: {type(e).__name__}: {str(e)[:300]}")
+                return done("failed", f"{provider} api error: {type(e).__name__}: {str(e)[:300]}")
             usage["steps"] += 1
             if os.environ.get("REPAIR_AGENT_DEBUG"):
-                print(f"[groq] step {usage['steps']} at {time.monotonic() - started:.0f}s", file=sys.stderr, flush=True)
+                print(f"[{provider}] step {usage['steps']} at {time.monotonic() - started:.0f}s", file=sys.stderr, flush=True)
             u = getattr(resp, "usage", None)
             if u is not None:
                 usage["input_tokens"] += getattr(u, "prompt_tokens", 0) or 0
                 usage["output_tokens"] += getattr(u, "completion_tokens", 0) or 0
+                details = getattr(u, "completion_tokens_details", None)
+                rt = getattr(details, "reasoning_tokens", 0) if details is not None else 0
+                if rt:  # already part of completion_tokens; reported separately
+                    usage["reasoning_tokens"] = usage.get("reasoning_tokens", 0) + rt
             msg = resp.choices[0].message
             calls = list(getattr(msg, "tool_calls", None) or [])
             if not calls:
@@ -229,18 +269,28 @@ async def run_loop(
 
 
 def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_s: int, model: str | None = None,
-             on_tool: Any = None) -> AgentResult:
-    model = model or model_for("groq")
-    if not os.environ.get("GROQ_API_KEY"):
-        return AgentResult("failed", usage={"provider": "groq", "model": model}, error="GROQ_API_KEY not set")
+             on_tool: Any = None, provider: str = "groq", make_create: Any = None, key_error: str = "GROQ_API_KEY not set",
+             loop_kwargs: dict | None = None) -> AgentResult:
+    """Shared OpenAI-compatible tool loop. ``make_create`` (default: Groq client) builds ``chat.completions.create``."""
+    model = model or model_for(provider)
+    if make_create is None and not os.environ.get("GROQ_API_KEY"):
+        return AgentResult("failed", usage={"provider": provider, "model": model}, error=key_error)
+    if make_create is not None:
+        try:
+            create = make_create()
+        except Exception as e:  # noqa: BLE001
+            return AgentResult("failed", usage={"provider": provider, "model": model}, error=str(e)[:300])
+    else:
+        create = None
 
     async def main() -> AgentResult:
         with tempfile.TemporaryDirectory(prefix="repair-agent-") as tmp:
             out = str(Path(tmp) / "out.json")
             async with McpToolbox(server_specs(out)) as box:
                 return await run_loop(
-                    _make_groq(), box, system=SYSTEM_PROMPT, user=render_seed(seed, feedback), out_path=out,
-                    model=model, max_steps=max_steps, timeout_s=timeout_s, on_tool=on_tool,
+                    create or _make_groq(), box, system=SYSTEM_PROMPT, user=render_seed(seed, feedback), out_path=out,
+                    model=model, max_steps=max_steps, timeout_s=timeout_s, on_tool=on_tool, provider=provider,
+                    **(loop_kwargs or {}),
                 )
 
     # Hard guard: run in a daemon thread so a wedged HTTP/MCP call cannot outlive the deadline.
@@ -250,11 +300,11 @@ def run_groq(seed: dict, feedback: list[str] | None, *, max_steps: int, timeout_
         try:
             box.append(asyncio.run(main()))
         except Exception as e:  # noqa: BLE001
-            box.append(AgentResult("failed", usage={"provider": "groq", "model": model}, error=f"{type(e).__name__}: {str(e)[:300]}"))
+            box.append(AgentResult("failed", usage={"provider": provider, "model": model}, error=f"{type(e).__name__}: {str(e)[:300]}"))
 
     t = threading.Thread(target=target, daemon=True)
     t.start()
     t.join(timeout_s + 20)
     if box:
         return box[0]
-    return AgentResult("failed", usage={"provider": "groq", "model": model}, error=f"timeout after {timeout_s}s")
+    return AgentResult("failed", usage={"provider": provider, "model": model}, error=f"timeout after {timeout_s}s")

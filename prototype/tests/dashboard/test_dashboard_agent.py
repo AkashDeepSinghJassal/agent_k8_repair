@@ -17,7 +17,7 @@ def client(tmp_path, monkeypatch):
 
 def test_config_get_post(client):
     c, d = client
-    assert c.get("/api/agent/config").json() == {"provider": "groq", "model": "", "available": {"groq": True, "claude-cli": False}}
+    assert c.get("/api/agent/config").json() == {"provider": "groq", "model": "", "available": {"groq": True, "claude-cli": False, "scads-high": False, "scads-medium": False, "scads-low": False}}
     r = c.post("/api/agent/config", json={"provider": "claude-cli", "model": "sonnet"})
     assert r.json()["provider"] == "claude-cli"
     assert json.loads((d / "agent-config.json").read_text()) == {"provider": "claude-cli", "model": "sonnet"}

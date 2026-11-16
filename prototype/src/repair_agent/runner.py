@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from .config import fallback_enabled, other_provider, select_provider
+from .config import fallback_enabled, is_scads, other_provider, select_provider
 from .result import AgentResult, files_from_trace
 
 log = logging.getLogger(__name__)
@@ -18,6 +18,12 @@ def _host(provider: str):
         from .claude_host import run_claude
 
         return run_claude
+    if is_scads(provider):
+        import functools
+
+        from .scads_host import run_scads
+
+        return functools.partial(run_scads, provider=provider)
     from .groq_host import run_groq
 
     return run_groq
@@ -43,12 +49,12 @@ def _run(provider: str, seed: dict, feedback, max_steps: int, timeout_s: int, on
 
 
 def investigate(seed: dict, feedback: list[str] | None = None, *, provider: str | None = None,
-                max_steps: int = 30, timeout_s: int = 600, on_event=None) -> AgentResult:
+                max_steps: int = 30, timeout_s: int = 600, on_event=None, fallback: bool = True) -> AgentResult:
     started = time.monotonic()
     try:
         first = select_provider(provider)
         res = _run(first, seed, feedback, max_steps, timeout_s, on_event)
-        if res.status == "failed" and fallback_enabled():
+        if res.status in ("failed", "rate_limited") and fallback and fallback_enabled():
             second = other_provider(first)
             remaining = int(timeout_s - (time.monotonic() - started))
             if remaining <= 0:
@@ -56,7 +62,7 @@ def investigate(seed: dict, feedback: list[str] | None = None, *, provider: str 
                 return res
             alt = _run(second, seed, feedback, max_steps, remaining, on_event)
             alt.usage["fallback_from"] = first
-            if alt.status == "failed":
+            if alt.status in ("failed", "rate_limited"):
                 alt.error = f"{first}: {res.error}; {second}: {alt.error}"
             res = alt
         res.usage["latency_ms"] = int((time.monotonic() - started) * 1000)

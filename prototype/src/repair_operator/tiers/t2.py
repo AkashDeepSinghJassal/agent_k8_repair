@@ -147,7 +147,37 @@ def _groq(prompt: str) -> LlmReply:
         "input_tokens": getattr(u, "prompt_tokens", 0), "output_tokens": getattr(u, "completion_tokens", 0)})
 
 
-_CALLS: dict[str, LlmFn] = {"claude-cli": _claude, "groq": _groq}
+def _scads(prompt: str, provider: str = "scads-medium") -> LlmReply:
+    import httpx
+
+    from repair_agent.config import SCADS_BASE_URL, model_for, scads_api_key
+
+    key = scads_api_key()
+    if not key:
+        raise TierError("SCADS_API_KEY not set")
+    model = model_for(provider)
+    r = httpx.post(f"{SCADS_BASE_URL}/chat/completions", timeout=min(300, LLM_TIMEOUT),
+                   headers={"Authorization": f"Bearer {key}"},
+                   json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0})
+    if r.status_code >= 400:
+        raise TierError(f"scads HTTP {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    u = data.get("usage") or {}
+    return LlmReply((data["choices"][0]["message"].get("content") or ""), {
+        "provider": provider, "model": model, "cost_usd": 0,
+        "input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)})
+
+
+class _Calls(dict):
+    def __missing__(self, key: str) -> LlmFn:
+        from repair_agent.config import is_scads
+
+        if is_scads(key):
+            return lambda prompt: _scads(prompt, key)
+        raise KeyError(key)
+
+
+_CALLS: dict[str, LlmFn] = _Calls({"claude-cli": _claude, "groq": _groq})
 
 
 async def run(playbook: Playbook, seed: dict, mcp: Any, llm: LlmFn | None = None, tracer: Tracer | None = None,
