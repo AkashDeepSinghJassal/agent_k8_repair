@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import UTC
 from pathlib import Path
 from typing import ClassVar
 
@@ -174,6 +175,29 @@ def test_bench_failing_pod_detection(tmp_path):
     f = tmp_path / "x.json"
     f.write_text(json.dumps({"status": "escalated", "proposal": {"reason": "nothing"}, "usage": {"tool_calls": 2, "latency_ms": 9}}))
     assert b.summarize(f)["tool_calls"] == 2 and b.summarize(tmp_path / "none.json")["status"] == "no_result"
+
+
+def test_failing_pod_ignores_pre_injection_restarts():
+    from datetime import datetime
+
+    b = _bench()
+    since = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+
+    def pod(name, created, **cs):
+        return {"metadata": {"name": name, "creationTimestamp": created}, "status": {"phase": "Running", "containerStatuses": [cs]}}
+
+    old = {"reason": "Error", "finishedAt": "2026-11-16T10:00:00Z"}
+    new = {"reason": "Error", "finishedAt": "2026-11-16T12:01:00Z"}
+    frontend = pod("frontend-aaa", "2026-11-16T09:00:00Z", restartCount=3, state={"running": {}}, lastState={"terminated": old})
+    api = pod("api-bbb", "2026-11-16T09:00:00Z", restartCount=1, state={"waiting": {"reason": "CrashLoopBackOff"}}, lastState={"terminated": new})
+    assert b.failing_pod([frontend, api], since) == ("api-bbb", "CrashLoopBackOff")
+    assert b.failing_pod([frontend], since) is None
+    api2 = pod("api-ccc", "2026-11-16T12:00:30Z", state={"waiting": {"reason": "ImagePullBackOff"}})
+    assert b.failing_pod([frontend, api2], since, hint="api") == ("api-ccc", "ImagePullBackOff")
+    other = pod("worker-x", "2026-11-16T12:00:30Z", state={"waiting": {"reason": "CrashLoopBackOff"}})
+    assert b.failing_pod([other, api], since, hint="api")[0] == "api-bbb"
+    assert b.workload_hint({"target_file": "deploy/demo/worker.yaml"}) == "worker"
+    assert b.workload_hint({"target_file": "deploy/demo/configmaps.yaml", "restart_target": "api"}) == "api"
 
 
 def test_new_default_levels():

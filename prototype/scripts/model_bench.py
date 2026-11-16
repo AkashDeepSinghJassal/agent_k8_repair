@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,27 +24,61 @@ CONTEXT = "kind-repair"
 FAILING_WAITING = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError"}
 
 
-def failing_pod(pods: list[dict]) -> tuple[str, str] | None:
-    """(pod name, reason) of the first pod showing one of the fault symptoms, else None. Pure, takes pod JSON dicts."""
-    for pod in pods:
-        name = pod["metadata"]["name"]
-        status = pod.get("status") or {}
-        for cs in status.get("containerStatuses") or []:
-            waiting = (cs.get("state") or {}).get("waiting") or {}
-            term = (cs.get("lastState") or {}).get("terminated") or {}
-            if waiting.get("reason") in FAILING_WAITING:
-                return name, waiting["reason"]
-            if term.get("reason") == "OOMKilled":
-                return name, "OOMKilled"
-            if cs.get("restartCount", 0) >= 3 and term:
-                return name, "LivenessProbeRestarts"
-        if status.get("phase") == "Pending":
-            for cond in status.get("conditions") or []:
-                if cond.get("type") == "PodScheduled" and cond.get("status") == "False" and cond.get("reason") == "Unschedulable":
-                    return name, "FailedScheduling"
-        if status.get("phase") == "Failed":
-            return name, "Failed"
+def _ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def workload_hint(entry: dict) -> str | None:
+    """Deployment the fault is expected to break: restart_target, else the stem of target_file (deploy/demo/api.yaml -> api)."""
+    if entry.get("restart_target"):
+        return str(entry["restart_target"])
+    target = entry.get("target_file")
+    if target and not Path(target).stem.startswith(("configmaps", "release-pipeline")):
+        return Path(target).stem
     return None
+
+
+def _symptom(pod: dict, since: datetime | None) -> str | None:
+    """Failure reason for one pod, counting only failures that started after ``since`` (None = no time filter)."""
+    status = pod.get("status") or {}
+
+    def after(ts: str | None) -> bool:
+        t = _ts(ts)
+        return since is None or (t is not None and t > since)
+
+    created = after(pod["metadata"].get("creationTimestamp"))
+    for cs in status.get("containerStatuses") or []:
+        waiting = (cs.get("state") or {}).get("waiting") or {}
+        term = (cs.get("lastState") or {}).get("terminated") or {}
+        term_new = bool(term) and after(term.get("finishedAt"))
+        if waiting.get("reason") in FAILING_WAITING and (term_new or created or not term and since is None):
+            return waiting["reason"]
+        if term.get("reason") == "OOMKilled" and term_new:
+            return "OOMKilled"
+        if cs.get("restartCount", 0) >= 3 and term and term_new:
+            return "LivenessProbeRestarts"
+    if status.get("phase") == "Pending" and created:
+        for cond in status.get("conditions") or []:
+            if cond.get("type") == "PodScheduled" and cond.get("status") == "False" and cond.get("reason") == "Unschedulable":
+                return "FailedScheduling"
+    if status.get("phase") == "Failed" and created:
+        return "Failed"
+    return None
+
+
+def failing_pod(pods: list[dict], since: datetime | None = None, hint: str | None = None) -> tuple[str, str] | None:
+    """(pod name, reason) of a pod whose failure started after ``since``; pods of workload ``hint`` win. Pure."""
+    found = [(p["metadata"]["name"], r) for p in pods if (r := _symptom(p, since))]
+    if hint:
+        for name, reason in found:
+            if name.startswith(hint + "-"):
+                return name, reason
+    return found[0] if found else None
 
 
 def pods_healthy(pods: list[dict]) -> bool:
@@ -144,12 +178,13 @@ def bench_fault(fault: str, providers: list[str], out_dir: Path, args: argparse.
     fdir = out_dir / fault
     fdir.mkdir(parents=True, exist_ok=True)
     res: dict[str, Any] = {"providers": {}}
+    injected_at = datetime.now(UTC)
     inj = faults_cli("inject", fault)
     if inj.returncode != 0:
         res["error"] = f"inject failed: {inj.stderr[:300]}"
         return res
     try:
-        found = wait_for(lambda: failing_pod(namespace_pods(ns)), args.wait_symptom)
+        found = wait_for(lambda: failing_pod(namespace_pods(ns), injected_at, workload_hint(entry)), args.wait_symptom)
         if not found:
             res["error"] = f"no failing pod within {args.wait_symptom}s"
         else:
