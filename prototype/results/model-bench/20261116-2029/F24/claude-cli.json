@@ -1,0 +1,141 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "  replicas: 2\n",
+        "replace": "  replicas: 1\n"
+      }
+    ],
+    "root_cause": "Commit bbdb072 raised replicas to 2 and added required podAntiAffinity on kubernetes.io/hostname; the cluster has only 1 node, so the second pod can never schedule.",
+    "failure_class": "UNSCHEDULABLE",
+    "confidence": 0.85,
+    "rationale": "Event: 0/1 nodes available, didn't match pod anti-affinity rules. The diff of bbdb072 shows replicas 1 -> 2 plus the anti-affinity. Restoring replicas to 1 keeps the anti-affinity and lets the pod schedule on the single node.",
+    "verify": "Worker deployment has 1/1 ready pod, scheduled on the node; no Pending pods.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-6b549cc7fb-dk7q4"
+      },
+      "result_preview": "{\n  \"name\": \"worker-6b549cc7fb-dk7q4\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }...",
+      "result": "{\n  \"name\": \"worker-6b549cc7fb-dk7q4\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 373,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "worker-6b549cc7fb-dk7q4"
+      },
+      "result_preview": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-6b549cc7fb-dk7q4\",\n  \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:57:41+00:00\"\n}",
+      "result": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-6b549cc7fb-dk7q4\",\n  \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:57:41+00:00\"\n}",
+      "ms": 32,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 126,
+      "server": "argo"
+    },
+    {
+      "step": 4,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1178,
+      "server": "git"
+    },
+    {
+      "step": 5,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n ...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 329,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\",\n  \"date\": \"2026-11-16T20:57:32+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b85f8cb3fcee201441464cfbe68dc31151d9c246\",\n  \"date\": \"2026-11-16T20:50:47+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"621521fc57d83e627f0a5fc498d2546280a6b359\",\n  \"date\": \"2026-11-16T20:48:58+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"5090dad7126c4b5e4c6ec6e2cc66278ff64d70...",
+      "result": "{\n  \"sha\": \"bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\",\n  \"date\": \"2026-11-16T20:57:32+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b85f8cb3fcee201441464cfbe68dc31151d9c246\",\n  \"date\": \"2026-11-16T20:50:47+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"621521fc57d83e627f0a5fc498d2546280a6b359\",\n  \"date\": \"2026-11-16T20:48:58+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"5090dad7126c4b5e4c6ec6e2cc66278ff64d703e\",\n  \"date\": \"2026-11-16T20:48:44+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"30832ac9ee36b3f51329f0c68e227bcbe239d489\",\n  \"date\": \"2026-11-16T20:46:50+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 826,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "bbdb07245a3546f76f7348fb51e4ea883f8bb8e7"
+      },
+      "result_preview": "commit bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:...",
+      "result": "commit bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:\n+            - labelSelector:\n+                matchLabels:\n+                  app: worker\n+              topologyKey: kubernetes.io/hostname\n       containers:\n         - name: worker\n           image: python:3.12-alpine",
+      "ms": 443,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "propose_patch",
+      "args": {
+        "file": "deploy/demo/worker.yaml",
+        "edits": [
+          {
+            "find": "  replicas: 2\n",
+            "replace": "  replicas: 1\n"
+          }
+        ],
+        "root_cause": "Commit bbdb072 raised replicas to 2 and added required podAntiAffinity on kubernetes.io/hostname; the cluster has only 1 node, so the second pod can never schedule.",
+        "failure_class": "UNSCHEDULABLE",
+        "confidence": 0.85,
+        "rationale": "Event: 0/1 nodes available, didn't match pod anti-affinity rules. The diff of bbdb072 shows replicas 1 -> 2 plus the anti-affinity. Restoring replicas to 1 keeps the anti-affinity and lets the pod schedule on the single node.",
+        "verify": "Worker deployment has 1/1 ready pod, scheduled on the node; no Pending pods."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 27,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-6b549cc7fb-dk7q4\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-6b549cc7fb\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-6b549cc7fb-dk7q4\",\n  \"message\": \"0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:57:41+00:00\"\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            - labelSelector:\n                matchLabels:\n                  app: worker\n              topologyKey: kubernetes.io/hostname\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\",\n  \"date\": \"2026-11-16T20:57:32+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"b85f8cb3fcee201441464cfbe68dc31151d9c246\",\n  \"date\": \"2026-11-16T20:50:47+00:00\",\n  \"message\": \"fault(F18): revert Secret key missing (secretKeyRef)\"\n}\n{\n  \"sha\": \"621521fc57d83e627f0a5fc498d2546280a6b359\",\n  \"date\": \"2026-11-16T20:48:58+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"5090dad7126c4b5e4c6ec6e2cc66278ff64d703e\",\n  \"date\": \"2026-11-16T20:48:44+00:00\",\n  \"message\": \"fault(F16): revert runAsNonRoot on an image that runs as root\"\n}\n{\n  \"sha\": \"30832ac9ee36b3f51329f0c68e227bcbe239d489\",\n  \"date\": \"2026-11-16T20:46:50+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\ncommit bbdb07245a3546f76f7348fb51e4ea883f8bb8e7\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -9,7 +9,7 @@ metadata:\n   annotations:\n     repair.example.dev/source-path: deploy/demo/worker.yaml\n spec:\n-  replicas: 1\n+  replicas: 2\n   selector:\n     matchLabels:\n       app: worker\n@@ -19,6 +19,13 @@ spec:\n         app: worker\n         app.kubernetes.io/version: \"1.0.0\"\n     spec:\n+      affinity:\n+        podAntiAffinity:\n+          requiredDuringSchedulingIgnoredDuringExecution:\n+            - labelSelector:\n+                matchLabels:\n+                  app: worker\n+              topologyKey: kubernetes.io/hostname\n       containers:\n         - name: worker\n           image: python:3.12-alpine\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml"
+  ],
+  "usage": {
+    "provider": "claude-cli",
+    "model": "sonnet",
+    "steps": 9,
+    "tool_calls": 8,
+    "input_tokens": 51851,
+    "output_tokens": 1315,
+    "latency_ms": 15873,
+    "cost_usd": 0.0494424
+  },
+  "error": "",
+  "provider": "claude-cli",
+  "model": "sonnet",
+  "latency_ms": 15873
+}

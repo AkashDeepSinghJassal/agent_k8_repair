@@ -1,0 +1,803 @@
+{
+  "providers": [
+    "claude-cli",
+    "scads-high",
+    "scads-medium",
+    "scads-low"
+  ],
+  "faults": {
+    "F4": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 109971,
+          "output_tokens": 2208,
+          "latency_ms": 24292,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "data:\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code",
+              "replace": "data:\n  DB_URL: redis://redis:6379\n  LOG_LEVEL: info\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: api-code"
+            }
+          ],
+          "root_cause": "Commit 873c1596 (\"config: tidy api configmap\") removed DB_URL from the api-config ConfigMap. app.py exits with code 1 when DB_URL is unset, so the new api ReplicaSet (api-658c4c8ff5) crash-loops."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 30,
+          "input_tokens": 235835,
+          "output_tokens": 31483,
+          "latency_ms": 276516,
+          "model": "zai-org/GLM-5.3",
+          "error": "model stopped without propose_patch/escalate"
+        },
+        "scads-medium": {
+          "status": "rate_limited",
+          "tool_calls": 15,
+          "input_tokens": 88136,
+          "output_tokens": 4951,
+          "latency_ms": 38317,
+          "model": "openai/gpt-oss-120b",
+          "error": "ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limit type: tokens. Current limit: 4000, Remaining: 0. Limit resets at: 2026-11-16 19:31:05 UTC\",\"type\":\"rate_limit_erro"
+        },
+        "scads-low": {
+          "status": "rate_limited",
+          "tool_calls": 15,
+          "input_tokens": 641722,
+          "output_tokens": 1948,
+          "latency_ms": 25676,
+          "model": "google/gemma-4-26B-A4B-it",
+          "error": "ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-11-16 19:30:53 UTC\",\"type\":\"rate_limi"
+        }
+      },
+      "pod": "api-87c8d6fb7-dgfzq",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F1": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 97528,
+          "output_tokens": 1963,
+          "latency_ms": 20062,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "              memory: 24Mi\n",
+              "replace": "              memory: 96Mi\n"
+            },
+            {
+              "find": "              memory: 32Mi\n",
+              "replace": "              memory: 128Mi\n"
+            }
+          ],
+          "root_cause": "Commit 93e5c37 (\"deploy(api): adjust resource limits\") cut api memory request/limit from 96Mi/128Mi to 24Mi/32Mi. The new api pod is OOMKilled (exit 137) and in CrashLoopBackOff. The frontend restarts were a transient nginx \"host not found in upstream api\" at startup, and the frontend is healthy now."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94176,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-b99699886-q4hqm",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F5": {
+      "providers": {
+        "claude-cli": {
+          "status": "escalated",
+          "tool_calls": 9,
+          "input_tokens": 61186,
+          "output_tokens": 1375,
+          "latency_ms": 15934,
+          "model": "sonnet",
+          "error": "",
+          "escalation": "No fix needed in git. The frontend pod is Running and Ready, and the frontend, api and redis Services each have a ready endpoint. Argo reports demo-app Synced and Healthy. The earlier crash was a transient startup race. Nginx exited at 19:29:02 with 'host not found in upstream \"api\"' because the api Service did not resolve yet, and kubelet restarted it. The restart at 19:29:31 succeeded. The api deployment was also reverted by commit 3ab538b (\"revert memory limit too low\"), which likely caused the api disruption around that time.",
+          "root_cause": "Transient startup race: nginx resolved the upstream \"api\" before the api Service/pods were available, exited with code 1 and restarted. It has recovered, and the api config was restored by 3ab538b."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 228919,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-b99699886-q4hqm",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F8": {
+      "providers": {
+        "claude-cli": {
+          "status": "escalated",
+          "tool_calls": 10,
+          "input_tokens": 62501,
+          "output_tokens": 1714,
+          "latency_ms": 19188,
+          "model": "sonnet",
+          "error": "",
+          "escalation": "The pod has recovered, so there is nothing to patch. The frontend pod is Running and Ready, and the api Service has 1 ready endpoint. Probes have returned 200 continuously since the last restart at 19:29:31. Argo CD shows the app as Synced.",
+          "root_cause": "The container's last termination (exit 1, 19:29:07) came from a startup race. nginx failed with \"host not found in upstream 'api'\" because the api Service was not yet resolvable in DNS when the frontend started. Kubernetes restarted the container, and it has been healthy since the 3rd restart. The upstream name 'api' in the frontend-nginx ConfigMap is correct. The latest api.yaml commits (93e5c37, 3ab538b, 20:24-20:25) came after this crash, so they did not cause it. A durable hardening would be a startup-order tolerance, such as a resolver directive with a variable upstream. That is a design change and not supported by evidence of a current fault."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 162875,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-b99699886-q4hqm",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F9": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 54100,
+          "output_tokens": 1352,
+          "latency_ms": 16181,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "              memory: 24Mi\n",
+              "replace": "              memory: 96Mi\n"
+            },
+            {
+              "find": "              memory: 32Mi\n",
+              "replace": "              memory: 128Mi\n"
+            }
+          ],
+          "root_cause": "Commit ad8ebfa lowered api-b memory request/limit from 96Mi/128Mi to 24Mi/32Mi, causing OOMKilled (exit 137) crash loop."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 95535,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "api-b-7b9c4cb5cb-kwc45",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F10": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 13,
+          "input_tokens": 114271,
+          "output_tokens": 1827,
+          "latency_ms": 21338,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "  name: api-svc\n",
+              "replace": "  name: api\n"
+            }
+          ],
+          "root_cause": "Commit 8733c8d (\"deploy(api): rename service\") renamed Service api to api-svc. The frontend nginx config (frontend-nginx ConfigMap) proxies to http://api:8000, so nginx fails with 'host not found in upstream \"api\"' and the container exits 1 on start."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93586,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-b99699886-q4hqm",
+      "symptom": "LivenessProbeRestarts",
+      "recovered": true
+    },
+    "F11": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 47544,
+          "output_tokens": 1272,
+          "latency_ms": 14370,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/configmaps.yaml",
+          "edits": [
+            {
+              "find": "  site.conf: |",
+              "replace": "  default.conf: |"
+            }
+          ],
+          "root_cause": "Commit 626755a renamed the frontend-nginx ConfigMap key from default.conf to site.conf, but the frontend Deployment still mounts subPath default.conf. The subPath is missing, so the mount fails with \"not a directory\"."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 95255,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-58c477456f-rzxjs",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F12": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 10,
+          "input_tokens": 66654,
+          "output_tokens": 1496,
+          "latency_ms": 18887,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo-b/configmaps.yaml",
+          "edits": [
+            {
+              "find": "  name: api-b-config-v2\n",
+              "replace": "  name: api-b-config\n"
+            }
+          ],
+          "root_cause": "Commit dee8ce3 renamed ConfigMap api-b-config to api-b-config-v2, but Deployment api-b still references api-b-config via envFrom, so the container fails with CreateContainerConfigError."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93750,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "api-b-5f59b4bc94-7lsfd",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F14": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 52163,
+          "output_tokens": 1327,
+          "latency_ms": 17156,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "              memory: 64Gi\n              cpu: 25m",
+              "replace": "              memory: 32Mi\n              cpu: 25m"
+            },
+            {
+              "find": "              memory: 96Gi\n              cpu: 250m",
+              "replace": "              memory: 64Mi\n              cpu: 250m"
+            }
+          ],
+          "root_cause": "Commit 33e811f \"tune resource requests\" raised worker memory request/limit from 32Mi/64Mi to 64Gi/96Gi, exceeding node capacity so the pod is Unschedulable (Insufficient memory)."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94361,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "worker-9dfb6f64d-dr9qb",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F15": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 10,
+          "input_tokens": 53961,
+          "output_tokens": 1523,
+          "latency_ms": 16737,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "  storageClassName: fast-ssd\n",
+              "replace": "  storageClassName: standard\n"
+            }
+          ],
+          "root_cause": "Commit e288993 added PVC redis-data with storageClassName fast-ssd, which doesn't exist in the cluster (only 'standard' exists), so the PVC stays Pending and the pod is unschedulable."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93944,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "redis-54db7b8bc-2wxnw",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F16": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 9,
+          "input_tokens": 65356,
+          "output_tokens": 1545,
+          "latency_ms": 18803,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "          securityContext:\n            runAsNonRoot: true\n",
+              "replace": ""
+            }
+          ],
+          "root_cause": "Commit 30832ac added securityContext.runAsNonRoot: true to the worker container, but python:3.12-alpine runs as root and no runAsUser is set, so kubelet raises CreateContainerConfigError."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94140,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "worker-56f9c8ddd-mz7bx",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F18": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 10,
+          "input_tokens": 69558,
+          "output_tokens": 1928,
+          "latency_ms": 21473,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "                  key: WORKER_TOKEN\n",
+              "replace": "                  key: WORKER_TOKEN\n                  optional: true\n"
+            }
+          ],
+          "root_cause": "Commit 621521f added a WORKER_TOKEN env var sourced from Secret worker-credentials, but that Secret (defined in the same file) only contains WORKER_ID. The kubelet can't resolve the key, so the pod stays in CreateContainerConfigError."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94015,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "worker-554ff6d46f-bgbf7",
+      "symptom": "CreateContainerConfigError",
+      "recovered": true
+    },
+    "F21": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 60999,
+          "output_tokens": 1514,
+          "latency_ms": 17184,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "            - name: DB_URL\n              value: \"\"\n",
+              "replace": ""
+            }
+          ],
+          "root_cause": "Commit ac2d38a added env DB_URL=\"\" to the api Deployment. It takes precedence over envFrom api-config (DB_URL=redis://redis:6379), so the app exits with \"DB_URL not set\"."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93931,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "api-6cbf5967cc-k7pl8",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F22": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 71017,
+          "output_tokens": 1431,
+          "latency_ms": 17635,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/redis.yaml",
+          "edits": [
+            {
+              "find": "\"allkeys-lfu-max\"]",
+              "replace": "\"allkeys-lru\"]"
+            }
+          ],
+          "root_cause": "Commit edd672d changed redis --maxmemory-policy to invalid value \"allkeys-lfu-max\", so Redis exits at config parsing."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94116,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "redis-7d8d979d6c-mwwjk",
+      "symptom": "CrashLoopBackOff",
+      "recovered": true
+    },
+    "F23": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 53284,
+          "output_tokens": 1450,
+          "latency_ms": 17210,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo-b/api-b.yaml",
+          "edits": [
+            {
+              "find": "image: ghcr.io/akashdeepsinghjassal/api-b-private:1.0.0",
+              "replace": "image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "Commit 2f39726 switched api-b to the private image ghcr.io/akashdeepsinghjassal/api-b-private:1.0.0, which cannot be pulled (403 Forbidden from ghcr.io, so the regcred pull secret is missing or invalid). The pod is stuck in ErrImagePull."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93861,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "api-b-54fc594bc-59rhd",
+      "symptom": "ErrImagePull",
+      "recovered": true
+    },
+    "F24": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 51851,
+          "output_tokens": 1315,
+          "latency_ms": 15873,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "  replicas: 2\n",
+              "replace": "  replicas: 1\n"
+            }
+          ],
+          "root_cause": "Commit bbdb072 raised replicas to 2 and added required podAntiAffinity on kubernetes.io/hostname; the cluster has only 1 node, so the second pod can never schedule."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93733,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "worker-6b549cc7fb-dk7q4",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F25": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 11,
+          "input_tokens": 66600,
+          "output_tokens": 1563,
+          "latency_ms": 16703,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/frontend.yaml",
+          "edits": [
+            {
+              "find": "      nodeSelector:\n        disktype: ssd\n",
+              "replace": ""
+            }
+          ],
+          "root_cause": "Commit 1dd223e added nodeSelector disktype=ssd to the frontend Deployment; the only node (repair-control-plane) has no disktype label, so the pod is Unschedulable."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 94187,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "frontend-6b4c95cf57-km24q",
+      "symptom": "FailedScheduling",
+      "recovered": true
+    },
+    "F26": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 53536,
+          "output_tokens": 1300,
+          "latency_ms": 16021,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/api.yaml",
+          "edits": [
+            {
+              "find": "              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi",
+              "replace": "              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi"
+            }
+          ],
+          "root_cause": "Commit c064987 lowered api memory request/limit from 96Mi/128Mi to 24Mi/32Mi, so the container is OOMKilled (exit 137) at startup."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93796,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "api-86d9b747f4-h5v7s",
+      "symptom": "OOMKilled",
+      "recovered": true
+    },
+    "F27": {
+      "providers": {
+        "claude-cli": {
+          "status": "proposed",
+          "tool_calls": 8,
+          "input_tokens": 51943,
+          "output_tokens": 1104,
+          "latency_ms": 15629,
+          "model": "sonnet",
+          "error": "",
+          "file": "deploy/demo/worker.yaml",
+          "edits": [
+            {
+              "find": "image: python:3.12-alpine3.99",
+              "replace": "image: python:3.12-alpine"
+            }
+          ],
+          "root_cause": "Commit 6b52f57 changed the worker image to python:3.12-alpine3.99, a tag that doesn't exist, causing ErrImagePull."
+        },
+        "scads-high": {
+          "status": "failed",
+          "tool_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "latency_ms": 93688,
+          "model": "zai-org/GLM-5.3",
+          "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}"
+        },
+        "scads-medium": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi"
+        },
+        "scads-low": {
+          "status": "skipped",
+          "error": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+        }
+      },
+      "pod": "worker-5b575b8d6f-kbpbr",
+      "symptom": "ErrImagePull",
+      "recovered": true
+    }
+  },
+  "stopped": {
+    "scads-medium": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:openai/gpt-oss-120b. Limi",
+    "scads-low": "rate_limited at F4: ScadsHTTPError: HTTP 429: {\"error\":{\"message\":\"litellm.RateLimitError: Rate limit exceeded for model_per_key: bd2b1b18c57024d39fdad01c915a1849ae687785d6b68081299d513c18ba4ea3:google/gemma-4-26B-A4B-it"
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/api.yaml",
+    "edits": [
+      {
+        "find": "              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi",
+        "replace": "              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi"
+      }
+    ],
+    "root_cause": "Commit c064987 lowered api memory request/limit from 96Mi/128Mi to 24Mi/32Mi, so the container is OOMKilled (exit 137) at startup.",
+    "failure_class": "OOM_KILLED",
+    "confidence": 0.9,
+    "rationale": "The pod's lastState is OOMKilled with a 32Mi limit. The git diff of c064987 shows the previous known-good values were 96Mi (request) and 128Mi (limit). This patch restores them.",
+    "verify": "The api pod stays Running and Ready with no new OOMKilled restarts. Its memory limit should be 128Mi.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "api-86d9b747f4-h5v7s"
+      },
+      "result_preview": "{\n  \"name\": \"api-86d9b747f4-h5v7s\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-86d9b747f4\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers...",
+      "result": "{\n  \"name\": \"api-86d9b747f4-h5v7s\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-86d9b747f4\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"32Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"24Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-86d9b747f4-h5v7s_demo(d29cd45c-cadd-4a9b-bb04-6a8e5e47e30f)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://966f1638da2604664275a64fb2ef11d8a7647d0ef9e8fb4baa7d191f533d27de\",\n        \"exitCode\": 137,\n        \"finishedAt\": \"2026-11-16T21:02:13+00:00\",\n        \"reason\": \"OOMKilled\",\n        \"startedAt\": \"2026-11-16T21:02:13+00:00\"\n      }\n    }\n  ]\n}",
+      "ms": 391,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 310,
+      "server": "argo"
+    },
+    {
+      "step": 3,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1220,
+      "server": "git"
+    },
+    {
+      "step": 4,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo"
+      },
+      "result_preview": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "result": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "ms": 1085,
+      "server": "git"
+    },
+    {
+      "step": 5,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.p...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /livez\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n",
+      "ms": 297,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c20dfcf61b23bffc3\",\n  \"date\": \"2026-11-16T20:52:49+00:00\",\n  \"message\": \"fault(F21): revert env var shadowing (empty DB_URL overrides the ConfigMap)\"\n}\n{\n  \"sha\": \"ac2d38ae77c4d2490d9c57f88f46b1203d83c56d\",\n  \"date\": \"2026-11-16T20:51:01+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"e3ae559020e42ff85cb48...",
+      "result": "{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c20dfcf61b23bffc3\",\n  \"date\": \"2026-11-16T20:52:49+00:00\",\n  \"message\": \"fault(F21): revert env var shadowing (empty DB_URL overrides the ConfigMap)\"\n}\n{\n  \"sha\": \"ac2d38ae77c4d2490d9c57f88f46b1203d83c56d\",\n  \"date\": \"2026-11-16T20:51:01+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"e3ae559020e42ff85cb485c213e4ab5f694b20f2\",\n  \"date\": \"2026-11-16T20:37:28+00:00\",\n  \"message\": \"fault(F10): revert api Service renamed (frontend cannot resolve upstream)\"\n}\n{\n  \"sha\": \"8733c8dcd78c78825a2311891a1138bfc2026286\",\n  \"date\": \"2026-11-16T20:35:45+00:00\",\n  \"message\": \"deploy(api): rename service\"\n}",
+      "ms": 864,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/api.yaml",
+        "sha": "c064987709054cbb00058fa564acf9914b2e02cc"
+      },
+      "result_preview": "commit c064987709054cbb00058fa564acf9914b2e02cc\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -42,16 +42,16 @@ spec:\n             periodSeconds: 5\n           livenessProbe:\n             httpGet:\n-              path: /healthz\n+              path: /livez\n               port: 8000\n             initialDelaySeconds: 10\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limi...",
+      "result": "commit c064987709054cbb00058fa564acf9914b2e02cc\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -42,16 +42,16 @@ spec:\n             periodSeconds: 5\n           livenessProbe:\n             httpGet:\n-              path: /healthz\n+              path: /livez\n               port: 8000\n             initialDelaySeconds: 10\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limits:\n-              memory: 128Mi\n+              memory: 32Mi\n               cpu: 500m\n       volumes:\n         - name: code",
+      "ms": 403,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "propose_patch",
+      "args": {
+        "file": "deploy/demo/api.yaml",
+        "edits": [
+          {
+            "find": "              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi",
+            "replace": "              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi"
+          }
+        ],
+        "root_cause": "Commit c064987 lowered api memory request/limit from 96Mi/128Mi to 24Mi/32Mi, so the container is OOMKilled (exit 137) at startup.",
+        "failure_class": "OOM_KILLED",
+        "confidence": 0.9,
+        "rationale": "The pod's lastState is OOMKilled with a 32Mi limit. The git diff of c064987 shows the previous known-good values were 96Mi (request) and 128Mi (limit). This patch restores them.",
+        "verify": "The api pod stays Running and Ready with no new OOMKilled restarts. Its memory limit should be 128Mi."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 25,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"api-86d9b747f4-h5v7s\",\n  \"phase\": \"Running\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"api-86d9b747f4\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [api]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"api\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"500m\",\n          \"memory\": \"32Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"50m\",\n          \"memory\": \"24Mi\"\n        }\n      },\n      \"restartCount\": 1,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"back-off 10s restarting failed container=api pod=api-86d9b747f4-h5v7s_demo(d29cd45c-cadd-4a9b-bb04-6a8e5e47e30f)\",\n        \"reason\": \"CrashLoopBackOff\"\n      },\n      \"lastState\": {\n        \"state\": \"terminated\",\n        \"containerID\": \"containerd://966f1638da2604664275a64fb2ef11d8a7647d0ef9e8fb4baa7d191f533d27de\",\n        \"exitCode\": 137,\n        \"finishedAt\": \"2026-11-16T21:02:13+00:00\",\n        \"reason\": \"OOMKilled\",\n        \"startedAt\": \"2026-11-16T21:02:13+00:00\"\n      }\n    }\n  ]\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\n{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /livez\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 24Mi\n              cpu: 50m\n            limits:\n              memory: 32Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n\n{\n  \"sha\": \"c064987709054cbb00058fa564acf9914b2e02cc\",\n  \"date\": \"2026-11-16T21:02:03+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"69f541b5cad97ded6053938c20dfcf61b23bffc3\",\n  \"date\": \"2026-11-16T20:52:49+00:00\",\n  \"message\": \"fault(F21): revert env var shadowing (empty DB_URL overrides the ConfigMap)\"\n}\n{\n  \"sha\": \"ac2d38ae77c4d2490d9c57f88f46b1203d83c56d\",\n  \"date\": \"2026-11-16T20:51:01+00:00\",\n  \"message\": \"chore(demo): update api.yaml\"\n}\n{\n  \"sha\": \"e3ae559020e42ff85cb485c213e4ab5f694b20f2\",\n  \"date\": \"2026-11-16T20:37:28+00:00\",\n  \"message\": \"fault(F10): revert api Service renamed (frontend cannot resolve upstream)\"\n}\n{\n  \"sha\": \"8733c8dcd78c78825a2311891a1138bfc2026286\",\n  \"date\": \"2026-11-16T20:35:45+00:00\",\n  \"message\": \"deploy(api): rename service\"\n}\ncommit c064987709054cbb00058fa564acf9914b2e02cc\n--- a/deploy/demo/api.yaml\n+++ b/deploy/demo/api.yaml\n@@ -42,16 +42,16 @@ spec:\n             periodSeconds: 5\n           livenessProbe:\n             httpGet:\n-              path: /healthz\n+              path: /livez\n               port: 8000\n             initialDelaySeconds: 10\n             periodSeconds: 10\n           resources:\n             requests:\n-              memory: 96Mi\n+              memory: 24Mi\n               cpu: 50m\n             limits:\n-              memory: 128Mi\n+              memory: 32Mi\n               cpu: 500m\n       volumes:\n         - name: code\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/api.yaml"
+  ],
+  "usage": {
+    "provider": "claude-cli",
+    "model": "sonnet",
+    "steps": 9,
+    "tool_calls": 8,
+    "input_tokens": 53536,
+    "output_tokens": 1300,
+    "latency_ms": 16021,
+    "cost_usd": 0.051426
+  },
+  "error": "",
+  "provider": "claude-cli",
+  "model": "sonnet",
+  "latency_ms": 16021
+}

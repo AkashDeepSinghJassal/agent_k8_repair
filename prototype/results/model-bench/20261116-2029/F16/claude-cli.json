@@ -1,0 +1,153 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "          securityContext:\n            runAsNonRoot: true\n",
+        "replace": ""
+      }
+    ],
+    "root_cause": "Commit 30832ac added securityContext.runAsNonRoot: true to the worker container, but python:3.12-alpine runs as root and no runAsUser is set, so kubelet raises CreateContainerConfigError.",
+    "failure_class": "CONFIG_ERROR",
+    "confidence": 0.85,
+    "rationale": "The pod event says \"container has runAsNonRoot and image will run as root\". The only change in 30832ac is the added securityContext block. Reverting it restores the previous working spec. I did not pick a runAsUser because no manifest in the repo gives a grounded UID.",
+    "verify": "The worker pod's container starts and reaches Running, and the Deployment rolls out with no CreateContainerConfigError.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-56f9c8ddd-mz7bx"
+      },
+      "result_preview": "{\n  \"name\": \"worker-56f9c8ddd-mz7bx\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-56f9c8ddd\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"contai...",
+      "result": "{\n  \"name\": \"worker-56f9c8ddd-mz7bx\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-56f9c8ddd\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"container has runAsNonRoot and image will run as root (pod: \\\"worker-56f9c8ddd-mz7bx_demo(8d663884-5d98-46a0-8007-64db232059db)\\\", container: worker)\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 342,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 160,
+      "server": "argo"
+    },
+    {
+      "step": 3,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "worker-56f9c8ddd-mz7bx"
+      },
+      "result_preview": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Successfully assigned demo/worker-56f9c8ddd-mz7bx to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00...",
+      "result": "{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Successfully assigned demo/worker-56f9c8ddd-mz7bx to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Error: container has runAsNonRoot and image will run as root (pod: \\\"worker-56f9c8ddd-mz7bx_demo(8d663884-5d98-46a0-8007-64db232059db)\\\", container: worker)\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}",
+      "ms": 43,
+      "server": "k8s"
+    },
+    {
+      "step": 4,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1156,
+      "server": "git"
+    },
+    {
+      "step": 5,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          securityContext:\n            runAsNonRoot: true\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 339,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"30832ac9ee36b3f51329f0c68e227bcbe239d489\",\n  \"date\": \"2026-11-16T20:46:50+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"7cb8b49b03ca1bf3768ee0625362dfaece31ea94\",\n  \"date\": \"2026-11-16T20:44:29+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4...",
+      "result": "{\n  \"sha\": \"30832ac9ee36b3f51329f0c68e227bcbe239d489\",\n  \"date\": \"2026-11-16T20:46:50+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"7cb8b49b03ca1bf3768ee0625362dfaece31ea94\",\n  \"date\": \"2026-11-16T20:44:29+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4807a444982c78140d1d1\",\n  \"date\": \"2026-11-16T20:29:46+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"a915dbabc4605bd6628277c3c89939d7880bfb46\",\n  \"date\": \"2026-11-16T20:25:53+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 791,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "30832ac9ee36b3f51329f0c68e227bcbe239d489"
+      },
+      "result_preview": "commit 30832ac9ee36b3f51329f0c68e227bcbe239d489\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "result": "commit 30832ac9ee36b3f51329f0c68e227bcbe239d489\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app",
+      "ms": 395,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/api.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.p...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n",
+      "ms": 257,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "propose_patch",
+      "args": {
+        "file": "deploy/demo/worker.yaml",
+        "edits": [
+          {
+            "find": "          securityContext:\n            runAsNonRoot: true\n",
+            "replace": ""
+          }
+        ],
+        "root_cause": "Commit 30832ac added securityContext.runAsNonRoot: true to the worker container, but python:3.12-alpine runs as root and no runAsUser is set, so kubelet raises CreateContainerConfigError.",
+        "failure_class": "CONFIG_ERROR",
+        "confidence": 0.85,
+        "rationale": "The pod event says \"container has runAsNonRoot and image will run as root\". The only change in 30832ac is the added securityContext block. Reverting it restores the previous working spec. I did not pick a runAsUser because no manifest in the repo gives a grounded UID.",
+        "verify": "The worker pod's container starts and reaches Running, and the Deployment rolls out with no CreateContainerConfigError."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 36,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-56f9c8ddd-mz7bx\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": \"repair-control-plane\",\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-56f9c8ddd\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodReadyToStartContainers\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Initialized\",\n      \"status\": \"True\"\n    },\n    {\n      \"type\": \"Ready\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"ContainersReady\",\n      \"status\": \"False\",\n      \"reason\": \"ContainersNotReady\",\n      \"message\": \"containers with unready status: [worker]\"\n    },\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"True\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"64Mi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"32Mi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {\n        \"state\": \"waiting\",\n        \"message\": \"container has runAsNonRoot and image will run as root (pod: \\\"worker-56f9c8ddd-mz7bx_demo(8d663884-5d98-46a0-8007-64db232059db)\\\", container: worker)\",\n        \"reason\": \"CreateContainerConfigError\"\n      },\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Scheduled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Successfully assigned demo/worker-56f9c8ddd-mz7bx to repair-control-plane\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\n{\n  \"type\": \"Normal\",\n  \"reason\": \"Pulled\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Container image \\\"python:3.12-alpine\\\" already present on machine and can be accessed by the pod\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"Failed\",\n  \"object\": \"Pod/worker-56f9c8ddd-mz7bx\",\n  \"message\": \"Error: container has runAsNonRoot and image will run as root (pod: \\\"worker-56f9c8ddd-mz7bx_demo(8d663884-5d98-46a0-8007-64db232059db)\\\", container: worker)\",\n  \"count\": 2,\n  \"lastTimestamp\": \"2026-11-16T20:47:04+00:00\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          securityContext:\n            runAsNonRoot: true\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 32Mi\n              cpu: 25m\n            limits:\n              memory: 64Mi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"30832ac9ee36b3f51329f0c68e227bcbe239d489\",\n  \"date\": \"2026-11-16T20:46:50+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"7cb8b49b03ca1bf3768ee0625362dfaece31ea94\",\n  \"date\": \"2026-11-16T20:44:29+00:00\",\n  \"message\": \"fault(F14): revert worker resource request larger than any node\"\n}\n{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4807a444982c78140d1d1\",\n  \"date\": \"2026-11-16T20:29:46+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"a915dbabc4605bd6628277c3c89939d7880bfb46\",\n  \"date\": \"2026-11-16T20:25:53+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\ncommit 30832ac9ee36b3f51329f0c68e227bcbe239d489\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -23,6 +23,8 @@ spec:\n         - name: worker\n           image: python:3.12-alpine\n           command: [\"python\", \"/app/worker.py\"]\n+          securityContext:\n+            runAsNonRoot: true\n           volumeMounts:\n             - name: code\n               mountPath: /app\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: api\n  template:\n    metadata:\n      labels:\n        app: api\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: api\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/app.py\"]\n          ports:\n            - containerPort: 8000\n          env:\n            - name: APP_VERSION\n              value: \"1.0.0\"\n          envFrom:\n            - configMapRef:\n                name: api-config\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            periodSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /healthz\n              port: 8000\n            initialDelaySeconds: 10\n            periodSeconds: 10\n          resources:\n            requests:\n              memory: 96Mi\n              cpu: 50m\n            limits:\n              memory: 128Mi\n              cpu: 500m\n      volumes:\n        - name: code\n          configMap:\n            name: api-code\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: demo\n  labels:\n    app: api\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/api.yaml\nspec:\n  selector:\n    app: api\n  ports:\n    - name: http\n      port: 8000\n      targetPort: 8000\n\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml",
+    "deploy/demo/api.yaml"
+  ],
+  "usage": {
+    "provider": "claude-cli",
+    "model": "sonnet",
+    "steps": 10,
+    "tool_calls": 9,
+    "input_tokens": 65356,
+    "output_tokens": 1545,
+    "latency_ms": 18803,
+    "cost_usd": 0.0587332
+  },
+  "error": "",
+  "provider": "claude-cli",
+  "model": "sonnet",
+  "latency_ms": 18803
+}

@@ -1,0 +1,160 @@
+{
+  "status": "proposed",
+  "proposal": {
+    "status": "proposed",
+    "file": "deploy/demo/worker.yaml",
+    "edits": [
+      {
+        "find": "              memory: 64Gi\n              cpu: 25m",
+        "replace": "              memory: 32Mi\n              cpu: 25m"
+      },
+      {
+        "find": "              memory: 96Gi\n              cpu: 250m",
+        "replace": "              memory: 64Mi\n              cpu: 250m"
+      }
+    ],
+    "root_cause": "Commit 33e811f \"tune resource requests\" raised worker memory request/limit from 32Mi/64Mi to 64Gi/96Gi, exceeding node capacity so the pod is Unschedulable (Insufficient memory).",
+    "failure_class": "UNSCHEDULABLE",
+    "confidence": 0.95,
+    "rationale": "Pod is Pending with FailedScheduling: 1 Insufficient memory. The diff of 33e811f shows the Gi values were introduced; restoring the previous 32Mi/64Mi values.",
+    "verify": "Worker pod schedules and reaches Running with requests 32Mi and limits 64Mi.",
+    "repo": ""
+  },
+  "trace": [
+    {
+      "step": 1,
+      "tool": "k8s_describe_pod",
+      "args": {
+        "namespace": "demo",
+        "pod": "worker-9dfb6f64d-dr9qb"
+      },
+      "result_preview": "{\n  \"name\": \"worker-9dfb6f64d-dr9qb\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n ...",
+      "result": "{\n  \"name\": \"worker-9dfb6f64d-dr9qb\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"96Gi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"64Gi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}",
+      "ms": 341,
+      "server": "k8s"
+    },
+    {
+      "step": 2,
+      "tool": "k8s_events",
+      "args": {
+        "namespace": "demo",
+        "name": "worker-9dfb6f64d-dr9qb"
+      },
+      "result_preview": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-dr9qb\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:42:49+00:00\"\n}",
+      "result": "{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-dr9qb\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:42:49+00:00\"\n}",
+      "ms": 92,
+      "server": "k8s"
+    },
+    {
+      "step": 3,
+      "tool": "argo_app_for_namespace",
+      "args": {
+        "namespace": "demo"
+      },
+      "result_preview": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "result": "{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}",
+      "ms": 236,
+      "server": "argo"
+    },
+    {
+      "step": 4,
+      "tool": "git_list",
+      "args": {
+        "prefix": "deploy/demo"
+      },
+      "result_preview": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "result": "deploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml",
+      "ms": 1529,
+      "server": "git"
+    },
+    {
+      "step": 5,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo"
+      },
+      "result_preview": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "result": "{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}",
+      "ms": 1396,
+      "server": "git"
+    },
+    {
+      "step": 6,
+      "tool": "git_read",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"py...",
+      "result": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n",
+      "ms": 355,
+      "server": "git"
+    },
+    {
+      "step": 7,
+      "tool": "git_log",
+      "args": {
+        "path": "deploy/demo/worker.yaml"
+      },
+      "result_preview": "{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4807a444982c78140d1d1\",\n  \"date\": \"2026-11-16T20:29:46+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"a915dbabc4605bd6628277c3c89939d7880bfb46\",\n  \"date\": \"2026-11-16T20:25:53+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"08200717bfdf061a4a64d779bf395ecbb2a335...",
+      "result": "{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4807a444982c78140d1d1\",\n  \"date\": \"2026-11-16T20:29:46+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"a915dbabc4605bd6628277c3c89939d7880bfb46\",\n  \"date\": \"2026-11-16T20:25:53+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"08200717bfdf061a4a64d779bf395ecbb2a3359e\",\n  \"date\": \"2026-11-06T12:36:29+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"b29d8bd85d7ae940a5e6f01f504586dec6cba09c\",\n  \"date\": \"2026-11-06T12:35:30+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}",
+      "ms": 1301,
+      "server": "git"
+    },
+    {
+      "step": 8,
+      "tool": "git_diff",
+      "args": {
+        "path": "deploy/demo/worker.yaml",
+        "sha": "33e811fd9a4e00fa5e1b536fb411701d55f78eaa"
+      },
+      "result_preview": "commit 33e811fd9a4e00fa5e1b536fb411701d55f78eaa\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code",
+      "result": "commit 33e811fd9a4e00fa5e1b536fb411701d55f78eaa\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code",
+      "ms": 417,
+      "server": "git"
+    },
+    {
+      "step": 9,
+      "tool": "propose_patch",
+      "args": {
+        "file": "deploy/demo/worker.yaml",
+        "edits": [
+          {
+            "find": "              memory: 64Gi\n              cpu: 25m",
+            "replace": "              memory: 32Mi\n              cpu: 25m"
+          },
+          {
+            "find": "              memory: 96Gi\n              cpu: 250m",
+            "replace": "              memory: 64Mi\n              cpu: 250m"
+          }
+        ],
+        "root_cause": "Commit 33e811f \"tune resource requests\" raised worker memory request/limit from 32Mi/64Mi to 64Gi/96Gi, exceeding node capacity so the pod is Unschedulable (Insufficient memory).",
+        "failure_class": "UNSCHEDULABLE",
+        "confidence": 0.95,
+        "rationale": "Pod is Pending with FailedScheduling: 1 Insufficient memory. The diff of 33e811f shows the Gi values were introduced; restoring the previous 32Mi/64Mi values.",
+        "verify": "Worker pod schedules and reaches Running with requests 32Mi and limits 64Mi."
+      },
+      "result_preview": "recorded; your investigation is complete, stop now",
+      "result": "recorded; your investigation is complete, stop now",
+      "ms": 24,
+      "server": "repair"
+    }
+  ],
+  "evidence_text": "{\n  \"name\": \"worker-9dfb6f64d-dr9qb\",\n  \"phase\": \"Pending\",\n  \"reason\": null,\n  \"message\": null,\n  \"node\": null,\n  \"owner\": [\n    {\n      \"kind\": \"ReplicaSet\",\n      \"name\": \"worker-9dfb6f64d\"\n    }\n  ],\n  \"conditions\": [\n    {\n      \"type\": \"PodScheduled\",\n      \"status\": \"False\",\n      \"reason\": \"Unschedulable\",\n      \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\"\n    }\n  ],\n  \"containers\": [\n    {\n      \"name\": \"worker\",\n      \"image\": \"python:3.12-alpine\",\n      \"resources\": {\n        \"limits\": {\n          \"cpu\": \"250m\",\n          \"memory\": \"96Gi\"\n        },\n        \"requests\": {\n          \"cpu\": \"25m\",\n          \"memory\": \"64Gi\"\n        }\n      },\n      \"restartCount\": 0,\n      \"ready\": false,\n      \"state\": {},\n      \"lastState\": {}\n    }\n  ]\n}\n{\n  \"type\": \"Warning\",\n  \"reason\": \"FailedScheduling\",\n  \"object\": \"Pod/worker-9dfb6f64d-dr9qb\",\n  \"message\": \"0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.\",\n  \"count\": 1,\n  \"lastTimestamp\": \"2026-11-16T20:42:49+00:00\"\n}\n{\n  \"app\": \"demo-app\",\n  \"repoURL\": \"https://github.com/AkashDeepSinghJassal/repair-demo-app.git\",\n  \"path\": \"deploy/demo\",\n  \"targetRevision\": \"main\"\n}\ndeploy/demo-b/api-b.yaml\ndeploy/demo-b/configmaps.yaml\ndeploy/demo-b/namespace.yaml\ndeploy/demo/api.yaml\ndeploy/demo/configmaps.yaml\ndeploy/demo/frontend.yaml\ndeploy/demo/namespace.yaml\ndeploy/demo/networkpolicy.yaml\ndeploy/demo/redis.yaml\ndeploy/demo/worker.yaml\n{\n  \"error\": \"path not allowed (must match deploy/** or workflows/** ending in .yaml/.yml)\"\n}\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: worker\n  namespace: demo\n  labels:\n    app: worker\n    app.kubernetes.io/version: \"1.0.0\"\n  annotations:\n    repair.example.dev/source-path: deploy/demo/worker.yaml\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: worker\n  template:\n    metadata:\n      labels:\n        app: worker\n        app.kubernetes.io/version: \"1.0.0\"\n    spec:\n      containers:\n        - name: worker\n          image: python:3.12-alpine\n          command: [\"python\", \"/app/worker.py\"]\n          volumeMounts:\n            - name: code\n              mountPath: /app\n              readOnly: true\n          resources:\n            requests:\n              memory: 64Gi\n              cpu: 25m\n            limits:\n              memory: 96Gi\n              cpu: 250m\n      volumes:\n        - name: code\n          configMap:\n            name: worker-code\n\n{\n  \"sha\": \"33e811fd9a4e00fa5e1b536fb411701d55f78eaa\",\n  \"date\": \"2026-11-16T20:42:40+00:00\",\n  \"message\": \"deploy(worker): tune resource requests\"\n}\n{\n  \"sha\": \"28b0b31de2ce4c05b2e4807a444982c78140d1d1\",\n  \"date\": \"2026-11-16T20:29:46+00:00\",\n  \"message\": \"fault(F5): revert wrong script path in worker\"\n}\n{\n  \"sha\": \"a915dbabc4605bd6628277c3c89939d7880bfb46\",\n  \"date\": \"2026-11-16T20:25:53+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\n{\n  \"sha\": \"08200717bfdf061a4a64d779bf395ecbb2a3359e\",\n  \"date\": \"2026-11-06T12:36:29+00:00\",\n  \"message\": \"fault(F27): revert bad worker image under noise (unrelated pods restarted)\"\n}\n{\n  \"sha\": \"b29d8bd85d7ae940a5e6f01f504586dec6cba09c\",\n  \"date\": \"2026-11-06T12:35:30+00:00\",\n  \"message\": \"chore(demo): update worker.yaml\"\n}\ncommit 33e811fd9a4e00fa5e1b536fb411701d55f78eaa\n--- a/deploy/demo/worker.yaml\n+++ b/deploy/demo/worker.yaml\n@@ -29,10 +29,10 @@ spec:\n               readOnly: true\n           resources:\n             requests:\n-              memory: 32Mi\n+              memory: 64Gi\n               cpu: 25m\n             limits:\n-              memory: 64Mi\n+              memory: 96Gi\n               cpu: 250m\n       volumes:\n         - name: code\nrecorded; your investigation is complete, stop now",
+  "files_read": [
+    "deploy/demo/worker.yaml"
+  ],
+  "usage": {
+    "provider": "claude-cli",
+    "model": "sonnet",
+    "steps": 10,
+    "tool_calls": 9,
+    "input_tokens": 52163,
+    "output_tokens": 1327,
+    "latency_ms": 17156,
+    "cost_usd": 0.0497012
+  },
+  "error": "",
+  "provider": "claude-cli",
+  "model": "sonnet",
+  "latency_ms": 17156
+}

@@ -1,0 +1,21 @@
+{
+  "status": "failed",
+  "proposal": null,
+  "trace": [],
+  "evidence_text": "",
+  "files_read": [],
+  "usage": {
+    "provider": "scads-high",
+    "model": "zai-org/GLM-5.3",
+    "steps": 0,
+    "tool_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0,
+    "latency_ms": 94140
+  },
+  "error": "scads-high api error: ScadsHTTPError: HTTP 503: {\"error\":{\"message\":\"The model `zai-org/GLM-5.3` is temporarily unavailable, likely due to a temporary restart. Please retry shortly or pick another model.\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"503\"}}",
+  "provider": "scads-high",
+  "model": "zai-org/GLM-5.3",
+  "latency_ms": 94140
+}
