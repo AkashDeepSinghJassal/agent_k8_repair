@@ -7,6 +7,7 @@ the real adapter and ``FakeKubeReader`` serves canned data in tests.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Protocol
 
 DEFAULT_NAMESPACES = ("demo", "demo-b")
@@ -161,6 +162,27 @@ def parse_workflow(wf: dict) -> dict:
     }
 
 
+def llm_label(agent: dict | None) -> str | None:
+    """Which LLM produced the proposal, e.g. "Mistral-Large-4 (scads-high)"; None when not recorded."""
+    if not agent:
+        return None
+    if agent.get("tierUsed") == "T1":
+        return "none (deterministic replay)"
+    provider, model = agent.get("provider") or "", str(agent.get("model") or "").split("/")[-1]
+    if provider == "claude-cli" and model in ("sonnet", "opus", "haiku"):
+        model = "Claude " + model.capitalize()
+    if not model:
+        return provider or None
+    label = f"{model} ({provider})" if provider else model
+    if fb := agent.get("fallbackFrom"):
+        from repair_agent.config import SCADS_LEVELS
+
+        env, default = SCADS_LEVELS.get(fb, ("", ""))
+        fb_model = (os.environ.get(env) if env else None) or default
+        label += f", fallback from {fb_model.split('/')[-1]} ({fb})" if fb_model else f", fallback from {fb}"
+    return label
+
+
 def parse_incident(ri: dict) -> dict:
     st = ri.get("status") or {}
     return {
@@ -171,6 +193,8 @@ def parse_incident(ri: dict) -> dict:
         "confidence": _g(st, "classification", "confidence"),
         "source": _g(st, "classification", "source"),
         "tier": _g(st, "proposal", "tier"),
+        "tierUsed": _g(st, "agent", "tierUsed"),
+        "llm": llm_label(st.get("agent")),
         "pullRequest": st.get("pullRequest"),
         "attempts": st.get("attempts", 0),
         "timestamps": st.get("timestamps") or {},

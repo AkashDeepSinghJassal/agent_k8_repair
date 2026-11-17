@@ -298,13 +298,14 @@ function renderIncidents(list) {
   const root = $("incident-list");
   root.replaceChildren();
   if (!list.length) return root.append(emptyBox("No repair incidents. The loop is idle, or nothing has failed yet."));
-  root.append(table("Repair incidents", ["Incident", "Class", "Tier", "Progress", "PR", "Attempts", "Opened"],
+  root.append(table("Repair incidents", ["Incident", "Class", "Tier", "LLM", "Progress", "PR", "Attempts", "Opened"],
     list.map((i) => h("tr", {},
       h("td", {}, h("button", { type: "button", class: "linkish", onclick: () => openDrawer(i.namespace, i.name) }, i.name),
         h("div", { class: "muted mono" }, i.namespace),
         h("button", { type: "button", class: "btn btn-small", onclick: () => openTrace(i.namespace, i.name) }, "Trace")),
       h("td", {}, i.class || "-", i.shadow ? h("div", {}, badge("shadow")) : null),
-      h("td", {}, i.tier ?? "-"),
+      h("td", {}, i.tier ?? "-", i.tierUsed ? h("div", { class: "muted mono" }, i.tierUsed) : null),
+      h("td", {}, i.llm || "-"),
       h("td", {}, stepBar(i)),
       h("td", {}, i.pullRequest ? h("a", { href: i.pullRequest, target: "_blank", rel: "noopener" }, "PR") : "-"),
       h("td", {}, i.attempts),
@@ -338,6 +339,7 @@ function drawerContent(i) {
     stepBar(i),
     h("dl", { class: "kv" },
       h("dt", {}, "Class"), h("dd", {}, i.class ? `${i.class} (${i.confidence ?? "?"}, via ${i.source || "?"})` : "-"),
+      h("dt", {}, "LLM"), h("dd", {}, i.llm ? `${i.llm}${i.tierUsed ? " · " + i.tierUsed : ""}` : "-"),
       h("dt", {}, "Outcome"), h("dd", {}, i.outcome ? `${i.outcome.result}${i.outcome.reason ? ": " + i.outcome.reason : ""}` : "in progress"),
       h("dt", {}, "Attempts"), h("dd", {}, i.attempts),
       h("dt", {}, "Signature"), h("dd", { class: "mono" }, i.signature || "-"),
