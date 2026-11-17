@@ -144,7 +144,7 @@ function eventBody(e) {
 function inlineExtra(e) {
   const d = e.data || {};
   if (e.kind === "route") {
-    const bits = [h("strong", {}, `Chosen tier: ${d.chosen_tier ?? d.tier ?? d.chosen ?? e.tier || "?"}`)];
+    const bits = [h("strong", {}, `Chosen tier: ${(d.chosen_tier ?? d.tier ?? d.chosen ?? e.tier) || "?"}`)];
     if (d.reason) bits.push(h("div", {}, d.reason));
     const meta = [d.playbook_id && `playbook ${d.playbook_id}`, d.playbook_state && `state ${d.playbook_state}`, d.fallback_from && `fallback from ${d.fallback_from}`,
       d.signature && `signature ${shortSig(d.signature)}`].filter(Boolean);
