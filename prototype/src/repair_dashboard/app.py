@@ -301,13 +301,15 @@ def _agent_config() -> dict:
 @app.get("/api/agent/config")
 def agent_config_get():
     cfg = _agent_config()
-    from repair_agent.config import scads_api_key
+    from repair_agent.config import SCADS_LEVELS, scads_api_key
 
     scads = bool(scads_api_key())
     available = {"groq": bool(os.environ.get("GROQ_API_KEY")), "claude-cli": shutil.which("claude") is not None,
                  "scads-high": scads, "scads-medium": scads, "scads-low": scads}
+    # Show the model a ScaDS level resolves to, e.g. "Mistral-Large-4 (scads-high)".
+    labels = {lvl: f"{(os.environ.get(env) or default).split('/')[-1]} ({lvl})" for lvl, (env, default) in SCADS_LEVELS.items()}
     provider = cfg.get("provider") or os.environ.get("REPAIR_AGENT_PROVIDER") or ("groq" if available["groq"] else "claude-cli")
-    return {"provider": provider, "model": cfg.get("model") or "", "available": available}
+    return {"provider": provider, "model": cfg.get("model") or "", "available": available, "labels": labels}
 
 
 @app.post("/api/agent/config")

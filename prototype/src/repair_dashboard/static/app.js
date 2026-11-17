@@ -392,13 +392,13 @@ async function initAgentSwitch() {
   try {
     const c = await getJSON("/api/agent/config");
     for (const p of ["groq", "claude-cli", "scads-high", "scads-medium", "scads-low"]) {
-      const o = h("option", { value: p }, p + (c.available[p] ? "" : " (unavailable)"));
+      const o = h("option", { value: p }, ((c.labels && c.labels[p]) || p) + (c.available[p] ? "" : " (unavailable)"));
       if (p === c.provider) o.selected = true;
       sel.append(o);
     }
   } catch (e) { sel.hidden = true; return; }
   sel.addEventListener("change", async () => {
-    try { await postJSON("/api/agent/config", { provider: sel.value }); toast("Agent provider: " + sel.value); }
+    try { await postJSON("/api/agent/config", { provider: sel.value }); toast("Agent provider: " + sel.options[sel.selectedIndex].text); }
     catch (e) { toast(e.message, true); }
   });
 }
