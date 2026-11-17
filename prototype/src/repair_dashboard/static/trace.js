@@ -106,11 +106,23 @@ function flowFacts(events) {
   const phase = outcome ? (outcome.data && outcome.data.phase) || outcome.title : null;
   const current = lastEv ? STAGES.find((s) => s.id === stageOf(lastEv.kind)).label : "";
   return {
-    t0, tier, tokens, fault, outcome: phase,
+    t0, tier, tokens, fault, outcome: phase, llm: llmLabel(events, tier),
     terminal: !!outcome,
     phase: phase || (current ? `In progress: ${current}` : "-"),
     duration: lastEv ? Date.parse(lastEv.ts) - t0 : 0,
   };
+}
+
+// Which LLM did the work, from agent_end (T3) or llm_call (T2) data; mirrors llm_label() in kube.py.
+function llmLabel(events, tier) {
+  const src = [...events].reverse().find((e) => (e.kind === "agent_end" || e.kind === "llm_call") && e.data && e.data.provider);
+  if (!src) return tier === "T1" ? "none (deterministic replay)" : null;
+  const d = src.data;
+  let model = String(d.model || "").split("/").pop();
+  if (d.provider === "claude-cli" && ["sonnet", "opus", "haiku"].includes(model)) model = "Claude " + model[0].toUpperCase() + model.slice(1);
+  let label = model ? `${model} (${d.provider})` : d.provider;
+  if (d.fallback_from) label += `, fallback from ${PROVIDER_LABELS[d.fallback_from] || d.fallback_from}`;
+  return label;
 }
 
 // ------------------------------------------------------------ event rows
@@ -250,6 +262,7 @@ function paintHeader() {
     f.fault ? h("span", { class: "badge" }, `Fault ${f.fault}`) : null,
     h("span", { class: "badge " + tone }, f.phase),
     f.tier ? tierBadge(f.tier) : h("span", { class: "badge" }, "tier unknown"),
+    f.llm ? h("span", { class: "meta-item" }, h("span", { class: "muted" }, "LLM "), h("strong", {}, f.llm)) : null,
     h("span", { class: "meta-item" }, h("span", { class: "muted" }, "Tokens "), h("strong", {}, f.tokens ? f.tokens.toLocaleString() : "0")),
     h("span", { class: "meta-item" }, h("span", { class: "muted" }, "Duration "), h("strong", {}, T.events.length ? fmtMs(f.duration) : "-")),
     h("span", { class: "meta-item" }, h("span", { class: "muted" }, "Events "), h("strong", {}, T.events.length)),

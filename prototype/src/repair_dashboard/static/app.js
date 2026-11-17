@@ -389,10 +389,12 @@ async function loadAgentTrace(i) {
 }
 function fillTrace(nodes) { const el = $("agent-trace"); if (el) el.replaceChildren(...nodes); }
 
+const PROVIDER_LABELS = {};  // e.g. scads-high -> "Mistral-Large-4 (scads-high)"; also used by the trace header
 async function initAgentSwitch() {
   const sel = $("agent-provider");
   try {
     const c = await getJSON("/api/agent/config");
+    Object.assign(PROVIDER_LABELS, c.labels || {});
     for (const p of ["groq", "claude-cli", "scads-high", "scads-medium", "scads-low"]) {
       const o = h("option", { value: p }, ((c.labels && c.labels[p]) || p) + (c.available[p] ? "" : " (unavailable)"));
       if (p === c.provider) o.selected = true;
